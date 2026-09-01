@@ -75,7 +75,7 @@ jobs:
           ./scripts/verify-offline-bundle.sh "dist/jikim-${{ steps.version.outputs.version }}.tar.gz"
 
       - name: 검증 산출물 보관
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jikim-${{ steps.version.outputs.version }}-offline
           path: |
