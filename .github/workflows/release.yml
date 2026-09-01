@@ -85,8 +85,8 @@ jobs:
       - name: 이미지 계약 확인
         run: |
           test "$(docker image inspect --format '{{.Architecture}}' "jikim:${{ steps.version.outputs.version }}")" = amd64
-          test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.version\" }}' "jikim:${{ steps.version.outputs.version }}")" = "${{ steps.version.outputs.version }}"
-          test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' "jikim:${{ steps.version.outputs.version }}")" = "${{ steps.version.outputs.commit }}"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "jikim:${{ steps.version.outputs.version }}")" = "${{ steps.version.outputs.version }}"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "jikim:${{ steps.version.outputs.version }}")" = "${{ steps.version.outputs.commit }}"
 
       - name: 스모크 테스트용 PostgreSQL 이미지 준비
         run: docker pull postgres:17-alpine
