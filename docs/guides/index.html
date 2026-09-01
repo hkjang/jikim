@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="jikim v0.1.0 관리자, 사용자, API, 오프라인 설치, 보안 및 OpenBao 호환성 가이드">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://hkjang.github.io/jikim/guides/">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <title>가이드 · jikim</title>
+  <style>
+    :root{--night:#071a1d;--teal:#30d5c8;--ink:#0b2226;--muted:#516b6e;--line:#d8e4e2}*{box-sizing:border-box}body{margin:0;background:#f6faf9;color:var(--ink);font:17px/1.7 Pretendard,"Noto Sans KR",system-ui,sans-serif}header{padding:24px 0;color:#f5fcfc;background:var(--night)}.wrap{width:min(calc(100% - 36px),1040px);margin:auto}.brand{display:flex;align-items:center;justify-content:space-between}.brand img{width:130px}.brand a{color:#bad1d2;text-decoration:none;font-size:15px}.hero{padding:82px 0 58px;background:#0b292e;color:#f5fcfc}.hero small{color:var(--teal);font-weight:800;letter-spacing:.13em}.hero h1{margin:10px 0 15px;font-size:clamp(38px,7vw,62px);letter-spacing:-.05em;line-height:1.1}.hero p{max-width:720px;margin:0;color:#b5cdcf;font-size:19px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;padding:58px 0}.card{display:block;padding:27px;background:#fff;border:1px solid var(--line);border-radius:18px;color:inherit;text-decoration:none;box-shadow:0 10px 28px rgba(15,56,59,.05);transition:.2s}.card:hover{transform:translateY(-3px);border-color:#83c9c3}.card span{display:inline-block;color:#087d73;background:#e1f5f2;padding:4px 9px;border-radius:99px;font-size:12px;font-weight:750}.card h2{margin:15px 0 7px;font-size:22px}.card p{margin:0;color:var(--muted);font-size:15px}.contract{margin-bottom:70px;padding:28px;background:#e7f1ef;border-radius:18px}.contract h2{margin-top:0}.contract code{padding:3px 6px;background:#d6e8e5;border-radius:5px;font-size:14px}.contract a{color:#087d73;font-weight:750}footer{padding:35px 0;color:#91aaac;background:var(--night);font-size:13px}@media(max-width:680px){body{font-size:16px}.grid{grid-template-columns:1fr}.hero{padding:60px 0 44px}.hero p{font-size:17px}}
+  </style>
+</head>
+<body>
+  <header><div class="wrap brand"><a href="../"><img src="../assets/logo.svg" alt="jikim"></a><a href="../">홍보 페이지로 →</a></div></header>
+  <main>
+    <section class="hero"><div class="wrap"><small>JIKIM DOCUMENTATION</small><h1>운영을 위한 가이드</h1><p>v0.1.0에서 검증한 범위와 운영자가 확인해야 할 보안 경계를 한국어로 설명합니다.</p></div></section>
+    <div class="wrap">
+      <section class="grid" aria-label="가이드 목록">
+        <a class="card" href="https://github.com/hkjang/jikim/blob/main/docs/guides/admin-guide.md"><span>ADMIN</span><h2>관리자 가이드</h2><p>최초 기동, 사용자, Keycloak, AI, 승인과 키 정책을 설정합니다.</p></a>
+        <a class="card" href="https://github.com/hkjang/jikim/blob/main/docs/guides/user-guide.md"><span>USER</span><h2>사용자 가이드</h2><p>로그인, Secret 관리, 개인 키 회전과 승인 요청을 설명합니다.</p></a>
+        <a class="card" href="https://github.com/hkjang/jikim/blob/main/docs/guides/api-guide.md"><span>DEVELOPER</span><h2>API 가이드</h2><p>인증 헤더, 응답, 스트리밍 AI와 MCP/API 보안 경계를 다룹니다.</p></a>
+        <a class="card" href="https://github.com/hkjang/jikim/blob/main/docs/guides/offline-install.md"><span>OPERATIONS</span><h2>오프라인 설치</h2><p>SHA-256 검증, docker load, Compose 기동과 상태 확인 절차입니다.</p></a>
+        <a class="card" href="https://github.com/hkjang/jikim/blob/main/docs/guides/security.md"><span>SECURITY</span><h2>보안 가이드</h2><p>마스터 키, 저장 암호화, TLS, 감사, 백업과 사고 대응 원칙입니다.</p></a>
+        <a class="card" href="https://github.com/hkjang/jikim/blob/main/docs/guides/compatibility.md"><span>COMPATIBILITY</span><h2>OpenBao 호환성</h2><p>전체 호환 주장 없이 엔드포인트별 구현 상한과 differential suite 미구현 상태를 공개합니다.</p></a>
+      </section>
+      <aside class="contract"><h2>v0.1.0 부트스트랩 계약</h2><p>서비스는 고정 포트 <code>8080</code>과 네 환경변수 <code>POSTGRES_DSN</code>, <code>BOOTSTRAP_ADMIN</code>, <code>BOOTSTRAP_ADMIN_PASSWORD</code>, <code>ENCRYPTION_KEY</code>를 사용합니다. 자세한 반입 절차는 <a href="https://github.com/hkjang/jikim/blob/main/docs/guides/offline-install.md">오프라인 설치 가이드</a>에서 확인하세요.</p></aside>
+    </div>
+  </main>
+  <footer><div class="wrap">jikim v0.1.0 · Apache-2.0 · 문서의 지원 표기는 버전별 구현 프로파일을 따릅니다.</div></footer>
+</body>
+</html>

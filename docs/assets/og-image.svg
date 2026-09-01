@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">jikim Secret Security Platform</title>
+  <desc id="desc">비밀은 보이지 않게, 운영은 선명하게</desc>
+  <defs>
+    <linearGradient id="bg" x1="70" y1="30" x2="1110" y2="610" gradientUnits="userSpaceOnUse"><stop stop-color="#071A1D"/><stop offset="1" stop-color="#0D2930"/></linearGradient>
+    <linearGradient id="accent" x1="120" y1="110" x2="370" y2="365" gradientUnits="userSpaceOnUse"><stop stop-color="#30D5C8"/><stop offset="1" stop-color="#397CFF"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#30D5C8" stop-opacity=".24"/><stop offset="1" stop-color="#30D5C8" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="630" rx="32" fill="url(#bg)"/>
+  <circle cx="1030" cy="45" r="420" fill="url(#glow)"/>
+  <g transform="translate(96 118)">
+    <rect width="168" height="168" rx="42" fill="#041315" stroke="#31545A" stroke-width="2"/>
+    <path d="M84 25 141 48v42.5c0 36.5-21 60.6-57 74.2-36-13.6-57-37.7-57-74.2V48l57-23Z" fill="url(#accent)"/>
+    <path d="m58.5 92 17.7 18.5L112.6 73" fill="none" stroke="#071A1D" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="305" y="224" fill="#F5FCFC" font-family="Inter, Pretendard, Arial, sans-serif" font-size="92" font-weight="760" letter-spacing="-4">jikim</text>
+  <text x="100" y="388" fill="#F5FCFC" font-family="Pretendard, Arial, sans-serif" font-size="49" font-weight="700" letter-spacing="-1.5">비밀은 보이지 않게, 운영은 선명하게.</text>
+  <text x="102" y="455" fill="#A9C3C6" font-family="Pretendard, Arial, sans-serif" font-size="27">OpenBao 2.6.1 API 제한 호환 프리뷰 · 상세 범위 공개</text>
+  <g transform="translate(100 515)" font-family="Inter, Pretendard, Arial, sans-serif" font-size="20" font-weight="650">
+    <rect width="160" height="48" rx="24" fill="#14363A"/><text x="25" y="31" fill="#6DE7DA">OFFLINE READY</text>
+    <rect x="176" width="148" height="48" rx="24" fill="#142D4D"/><text x="202" y="31" fill="#79A8FF">v0.1.0</text>
+  </g>
+</svg>

@@ -1,0 +1,119 @@
+name: 오프라인 릴리스
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '기존 태그(예: v0.1.0). 수동 실행은 릴리스를 재검증할 때만 사용합니다.'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 이미지 검증 · 패키징 · GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: 소스 체크아웃
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: 릴리스 태그와 소스 버전 일치 확인
+        id: version
+        shell: bash
+        run: |
+          expected="$(./scripts/version.sh)"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            requested="${{ inputs.tag }}"
+          else
+            requested="${GITHUB_REF_NAME}"
+          fi
+          if [[ "${requested}" != "${expected}" ]]; then
+            printf '태그(%s)와 소스 버전(%s)이 다릅니다.\n' "${requested}" "${expected}" >&2
+            exit 1
+          fi
+          git rev-parse "refs/tags/${requested}" >/dev/null 2>&1 || {
+            printf '원격에 존재하는 태그만 릴리스할 수 있습니다: %s\n' "${requested}" >&2
+            exit 1
+          }
+          printf 'version=%s\n' "${requested}" >> "${GITHUB_OUTPUT}"
+          printf 'commit=%s\n' "$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Go 설정
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 릴리스 소스 검증
+        run: ./scripts/verify.sh
+
+      - name: Docker Buildx 설정
+        uses: docker/setup-buildx-action@v3
+
+      - name: linux/amd64 런타임 이미지 빌드
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg "VERSION=${{ steps.version.outputs.version }}" \
+            --build-arg "COMMIT=${{ steps.version.outputs.commit }}" \
+            --build-arg "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --tag "jikim:${{ steps.version.outputs.version }}" \
+            .
+
+      - name: 이미지 계약 확인
+        run: |
+          test "$(docker image inspect --format '{{.Architecture}}' "jikim:${{ steps.version.outputs.version }}")" = amd64
+          test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.version\" }}' "jikim:${{ steps.version.outputs.version }}")" = "${{ steps.version.outputs.version }}"
+          test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' "jikim:${{ steps.version.outputs.version }}")" = "${{ steps.version.outputs.commit }}"
+
+      - name: 스모크 테스트용 PostgreSQL 이미지 준비
+        run: docker pull postgres:17-alpine
+
+      - name: 폐쇄망 스모크 테스트
+        run: ./scripts/smoke-offline.sh "jikim:${{ steps.version.outputs.version }}"
+
+      - name: 오프라인 이미지 패키징
+        run: ./scripts/package-offline.sh release
+
+      - name: 번들 무결성 및 이미지 태그 검증
+        run: ./scripts/verify-offline-bundle.sh "release/jikim-${{ steps.version.outputs.version }}.tar.gz"
+
+      - name: GitHub Release 생성
+        run: |
+          if gh release view "${{ steps.version.outputs.version }}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${{ steps.version.outputs.version }}" \
+              "release/jikim-${{ steps.version.outputs.version }}.tar.gz" \
+              "release/jikim-${{ steps.version.outputs.version }}.tar.gz.sha256" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            gh release create "${{ steps.version.outputs.version }}" \
+              "release/jikim-${{ steps.version.outputs.version }}.tar.gz" \
+              "release/jikim-${{ steps.version.outputs.version }}.tar.gz.sha256" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --verify-tag \
+              --generate-notes \
+              --title "jikim ${{ steps.version.outputs.version }}"
+          fi

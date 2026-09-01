@@ -1,0 +1,18 @@
+{
+  "name": "jikim Secret Security Platform",
+  "short_name": "jikim",
+  "description": "폐쇄망을 고려한 애플리케이션 중심 Secret Security Platform",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#071a1d",
+  "theme_color": "#071a1d",
+  "lang": "ko-KR",
+  "icons": [
+    {
+      "src": "assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

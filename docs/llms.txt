@@ -1,0 +1,28 @@
+# jikim
+
+> jikim은 폐쇄망 운영을 고려한 애플리케이션 중심 Secrets & Identity Security Platform입니다.
+
+공식 사이트: https://hkjang.github.io/jikim/
+소스 저장소: https://github.com/hkjang/jikim
+릴리스: https://github.com/hkjang/jikim/releases
+현재 문서 프로파일: v0.1.0
+기본 언어: 한국어
+라이선스: Apache-2.0
+
+## 핵심 답변
+
+- 서비스 시작에 필요한 애플리케이션 환경변수는 POSTGRES_DSN, BOOTSTRAP_ADMIN, BOOTSTRAP_ADMIN_PASSWORD, ENCRYPTION_KEY 네 개입니다.
+- 서비스는 8080 포트에서 동작하며 /healthz와 /readyz 상태 확인 경로를 제공합니다.
+- 오프라인 산출물 이름은 jikim-v0.1.0.tar.gz, 포함 이미지 태그는 jikim:v0.1.0입니다.
+- OpenBao 전체 호환을 주장하지 않습니다. v0.1.0은 핸들러 구현 범위를 공개하는 제한 프리뷰이며 OpenBao differential suite는 미구현입니다.
+- Keycloak OIDC, AI, 승인 및 키 정책 같은 운영 설정은 관리자 UI에서 관리하는 방향입니다.
+- AI 요청에는 Secret 평문을 포함하지 않는 것이 기본 보안 경계입니다.
+
+## 문서
+
+- 관리자 가이드: https://github.com/hkjang/jikim/blob/main/docs/guides/admin-guide.md
+- 사용자 가이드: https://github.com/hkjang/jikim/blob/main/docs/guides/user-guide.md
+- API 가이드: https://github.com/hkjang/jikim/blob/main/docs/guides/api-guide.md
+- 오프라인 설치: https://github.com/hkjang/jikim/blob/main/docs/guides/offline-install.md
+- 보안 가이드: https://github.com/hkjang/jikim/blob/main/docs/guides/security.md
+- 호환성 프로파일: https://github.com/hkjang/jikim/blob/main/docs/guides/compatibility.md

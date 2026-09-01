@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 154 40" role="img" aria-labelledby="logoTitle">
+  <title id="logoTitle">jikim</title>
+  <defs><linearGradient id="lg" x1="3" y1="2" x2="37" y2="38" gradientUnits="userSpaceOnUse"><stop stop-color="#30D5C8"/><stop offset="1" stop-color="#397CFF"/></linearGradient></defs>
+  <rect x="1" y="1" width="38" height="38" rx="10" fill="#071A1D"/>
+  <path d="M20 6.5 33 11.7v9.7c0 8.3-4.8 13.8-13 16.9-8.2-3.1-13-8.6-13-16.9v-9.7L20 6.5Z" fill="url(#lg)"/>
+  <path d="m14.2 21.7 4 4.2 8.3-8.6" fill="none" stroke="#071A1D" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="49" y="29" fill="#F5FCFC" font-family="Inter, Pretendard, Arial, sans-serif" font-size="27" font-weight="760" letter-spacing="-1">jikim</text>
+</svg>
