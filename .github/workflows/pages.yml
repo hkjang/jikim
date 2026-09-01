@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Pages 설정
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: 정적 문서 기본 검증
         run: node scripts/verify-docs.mjs
