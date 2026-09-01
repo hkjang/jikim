@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: 소스 체크아웃
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Pages 설정
         uses: actions/configure-pages@v5
