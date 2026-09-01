@@ -37,7 +37,7 @@ jobs:
         run: node scripts/verify-docs.mjs
 
       - name: Pages 산출물 업로드
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs
 
