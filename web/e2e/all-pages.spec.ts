@@ -3,6 +3,10 @@ import path from 'node:path';
 
 const username = process.env.E2E_ADMIN || 'admin';
 const password = process.env.E2E_ADMIN_PASSWORD || 'ChangeMe-Only-For-E2E!';
+const configuredVersion = process.env.E2E_VERSION || process.env.VITE_APP_VERSION;
+const expectedVersion = configuredVersion
+  ? configuredVersion.startsWith('v') ? configuredVersion : `v${configuredVersion}`
+  : undefined;
 
 const pages = [
   ['dashboard', '/dashboard'], ['secrets', '/secrets'], ['secret-new', '/secrets/new'],
@@ -27,10 +31,20 @@ async function login(page: Page) {
   await expect(page).toHaveURL(/\/dashboard/);
 }
 
+async function expectServiceVersion(page: Page) {
+  const versionText = expectedVersion ? `jikim ${expectedVersion}` : /^jikim v\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/;
+  await expect(page.getByText(versionText)).toBeVisible();
+}
+
+async function waitForRenderedPage(page: Page) {
+  await page.waitForLoadState('networkidle');
+  await expect(page.locator('main .mantine-Loader-root')).toHaveCount(0);
+}
+
 test('로그인 화면', async ({ page }) => {
   await page.goto('/login');
   await expect(page.getByRole('heading', { name: '안전하게 로그인하세요' })).toBeVisible();
-  await expect(page.getByText('jikim v0.1.0')).toBeVisible();
+  await expectServiceVersion(page);
   await page.screenshot({ path: path.resolve('../docs/screenshots/login.png'), fullPage: true });
 });
 
@@ -41,6 +55,7 @@ test('OIDC 콜백의 안전한 실패 안내', async ({ page }) => {
 });
 
 test('모든 관리 화면이 직접 URL과 새로 고침에서 복원된다', async ({ page }) => {
+  test.setTimeout(90_000);
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
   const failedRequests: string[] = [];
@@ -56,7 +71,7 @@ test('모든 관리 화면이 직접 URL과 새로 고침에서 복원된다', a
   await login(page);
   await expect(page.locator('nav').getByText('검토·승인', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '프로필 메뉴' }).click();
-  await expect(page.getByText('jikim v0.1.0')).toBeVisible();
+  await expectServiceVersion(page);
   await page.screenshot({ path: path.resolve('../docs/screenshots/profile-menu.png'), fullPage: true, animations: 'disabled' });
   const secretResponse = await page.request.post('/api/v1/secrets', {
     data: { path: 'e2e/demo/database', description: 'E2E 화면 캡처용', tags: ['fixture'], metadata: { application: 'e2e-app', environment: 'DEV', owner: 'E2E' }, data: { username: 'demo-user', password: 'masked-in-captures' } },
@@ -67,7 +82,9 @@ test('모든 관리 화면이 직접 URL과 새로 고침에서 복원된다', a
   for (const [name, route] of routes) {
     await page.goto(route);
     await page.reload();
+    await expect.poll(() => page.evaluate(() => window.location.pathname)).toBe(route);
     await expect(page.locator('main')).toBeVisible();
+    await waitForRenderedPage(page);
     await expect(page.locator('body')).not.toContainText('Unexpected Application Error');
     if (name !== 'forbidden' && name !== 'not-found') {
       await expect(page.locator('main')).not.toContainText(/불러오지 못했습니다|요청을 처리하지 못했습니다|페이지를 표시하지 못했습니다/);
@@ -79,4 +96,29 @@ test('모든 관리 화면이 직접 URL과 새로 고침에서 복원된다', a
   expect(consoleErrors, `브라우저 console.error: ${consoleErrors.join(' | ')}`).toEqual([]);
   expect(failedRequests, `실패한 네트워크 요청: ${failedRequests.join(' | ')}`).toEqual([]);
   expect(httpErrors, `HTTP 오류 응답: ${httpErrors.join(' | ')}`).toEqual([]);
+});
+
+test('관리자 프로필 메뉴의 스크롤이 작은 화면 안에서 유지된다', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 360 });
+  await login(page);
+  await page.getByRole('button', { name: '프로필 메뉴' }).click();
+  const menu = page.locator('.profile-menu-scroll');
+  await expect(menu).toBeVisible();
+  const layout = await menu.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return {
+      overflowY: style.overflowY,
+      scrollbarWidth: style.scrollbarWidth,
+      scrollable: element.scrollHeight > element.clientHeight,
+      top: rect.top,
+      bottom: rect.bottom,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(layout.overflowY).toBe('auto');
+  expect(layout.scrollbarWidth).toBe('thin');
+  expect(layout.scrollable).toBe(true);
+  expect(layout.top).toBeGreaterThanOrEqual(0);
+  expect(layout.bottom).toBeLessThanOrEqual(layout.viewportHeight);
 });

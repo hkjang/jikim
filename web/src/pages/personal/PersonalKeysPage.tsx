@@ -113,15 +113,22 @@ interface KeyActionsProps {
 
 function KeyActions({ keyRecord, onRotate, onPermissions }: KeyActionsProps) {
   const unavailable = ['disabled', 'revoked', 'retired'].includes((keyRecord.status || '').toLowerCase());
+  const canRotate = keyRecord.permissions.includes('rotate');
+  const rotateUnavailable = unavailable || !canRotate;
+  const rotateHelp = unavailable
+    ? '비활성 키는 회전할 수 없습니다.'
+    : canRotate
+      ? '새 키 버전 생성'
+      : '이 키에 회전 요청 권한이 없습니다.';
   return (
     <Group gap="xs" wrap="nowrap">
-      <Tooltip label={unavailable ? '비활성 키는 회전할 수 없습니다.' : '새 키 버전 생성'}>
+      <Tooltip label={rotateHelp}>
         <span>
           <Button
             size="sm"
             variant="light"
             leftSection={<RotateCw size={15} />}
-            disabled={unavailable}
+            disabled={rotateUnavailable}
             onClick={() => onRotate(keyRecord)}
           >
             회전
@@ -227,6 +234,7 @@ export function PersonalKeysPage() {
   };
 
   const openRotation = (key: PersonalKey) => {
+    if (!key.permissions.includes('rotate')) return;
     rotationMutation.reset();
     setRotationTarget(key);
   };

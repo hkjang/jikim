@@ -18,11 +18,13 @@ import (
 func (s *Store) Authenticate(ctx context.Context, username, rawPassword string) (model.User, error) {
 	var user model.User
 	var hash *string
-	err := s.pool.QueryRow(ctx, `SELECT id, username, display_name, email, role, active,
-        personal_key_version, created_at, updated_at, password_hash
-        FROM users WHERE lower(username)=lower($1)`, strings.TrimSpace(username)).Scan(
+	err := s.pool.QueryRow(ctx, `SELECT id, username, display_name, email, role, active, auth_source,
+		personal_key_version, (SELECT max(s.created_at) FROM sessions s WHERE s.user_id=users.id AND s.kind='session'),
+		created_at, updated_at, password_hash
+		FROM users WHERE lower(username)=lower($1)`, strings.TrimSpace(username)).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Role,
-		&user.Active, &user.PersonalKeyVersion, &user.CreatedAt, &user.UpdatedAt, &hash)
+		&user.Active, &user.AuthSource, &user.PersonalKeyVersion, &user.LastLoginAt,
+		&user.CreatedAt, &user.UpdatedAt, &hash)
 	encoded := ""
 	if hash != nil {
 		encoded = *hash
@@ -73,13 +75,16 @@ func (s *Store) SessionByToken(ctx context.Context, plain string) (model.Session
 	hash := ids.HashToken(plain)
 	var session model.Session
 	err := s.pool.QueryRow(ctx, `SELECT s.id, s.kind, s.name, s.created_at, s.expires_at,
-        u.id, u.username, u.display_name, u.email, u.role, u.active,
-        u.personal_key_version, u.created_at, u.updated_at
-        FROM sessions s JOIN users u ON u.id=s.user_id
+		u.id, u.username, u.display_name, u.email, u.role, u.active, u.auth_source,
+		u.personal_key_version,
+		(SELECT max(login.created_at) FROM sessions login WHERE login.user_id=u.id AND login.kind='session'),
+		u.created_at, u.updated_at
+		FROM sessions s JOIN users u ON u.id=s.user_id
         WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.active=true`, hash).Scan(
 		&session.ID, &session.Kind, &session.Name, &session.CreatedAt, &session.ExpiresAt,
 		&session.User.ID, &session.User.Username, &session.User.DisplayName, &session.User.Email,
-		&session.User.Role, &session.User.Active, &session.User.PersonalKeyVersion,
+		&session.User.Role, &session.User.Active, &session.User.AuthSource,
+		&session.User.PersonalKeyVersion, &session.User.LastLoginAt,
 		&session.User.CreatedAt, &session.User.UpdatedAt)
 	if err != nil {
 		return model.Session{}, ErrUnauthorized
@@ -158,9 +163,10 @@ func (s *Store) CreateUser(ctx context.Context, input UserInput) (model.User, er
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	user, err := scanUser(tx.QueryRow(ctx, `INSERT INTO users
-        (id,username,display_name,email,password_hash,role,active)
-        VALUES($1,$2,$3,$4,$5,$6,true)
-        RETURNING id,username,display_name,email,role,active,personal_key_version,created_at,updated_at`,
+	        (id,username,display_name,email,password_hash,role,active)
+	        VALUES($1,$2,$3,$4,$5,$6,true)
+			RETURNING id,username,display_name,email,role,active,auth_source,personal_key_version,
+			NULL::timestamptz,created_at,updated_at`,
 		id, input.Username, strings.TrimSpace(input.DisplayName), strings.TrimSpace(input.Email), hash, input.Role))
 	if err != nil {
 		return model.User{}, mapError(err)
@@ -195,7 +201,8 @@ func (s *Store) UpdateUser(ctx context.Context, id string, input UserInput) (mod
 		current.Active = *input.Active
 	}
 	user, err := scanUser(s.pool.QueryRow(ctx, `UPDATE users SET display_name=$2,email=$3,role=$4,active=$5,updated_at=now()
-        WHERE id=$1 RETURNING id,username,display_name,email,role,active,personal_key_version,created_at,updated_at`,
+			WHERE id=$1 RETURNING id,username,display_name,email,role,active,auth_source,personal_key_version,
+			(SELECT max(s.created_at) FROM sessions s WHERE s.user_id=users.id AND s.kind='session'),created_at,updated_at`,
 		id, current.DisplayName, current.Email, current.Role, current.Active))
 	return user, mapError(err)
 }
@@ -257,8 +264,11 @@ func (s *Store) UpdateUserAsAdmin(ctx context.Context, id, actorID string, input
 	current.Role = newRole
 	current.Active = newActive
 	user, err := scanUser(tx.QueryRow(ctx, `UPDATE users SET display_name=$2,email=$3,role=$4,active=$5,
-		password_hash=COALESCE($6,password_hash),auth_source=CASE WHEN $6::text IS NULL THEN auth_source ELSE 'local' END,updated_at=now()
-		WHERE id=$1 RETURNING id,username,display_name,email,role,active,personal_key_version,created_at,updated_at`,
+		password_hash=COALESCE($6,password_hash),auth_source=CASE WHEN $6::text IS NULL THEN auth_source ELSE 'local' END,
+		external_issuer=CASE WHEN $6::text IS NULL THEN external_issuer ELSE NULL END,
+		external_subject=CASE WHEN $6::text IS NULL THEN external_subject ELSE NULL END,updated_at=now()
+		WHERE id=$1 RETURNING id,username,display_name,email,role,active,auth_source,personal_key_version,
+		(SELECT max(s.created_at) FROM sessions s WHERE s.user_id=users.id AND s.kind='session'),created_at,updated_at`,
 		id, current.DisplayName, current.Email, current.Role, current.Active, passwordHash))
 	if err != nil {
 		return model.User{}, mapError(err)
@@ -290,7 +300,8 @@ func validateActiveAdminInvariant(current model.User, newRole string, newActive 
 
 func (s *Store) UpdateProfile(ctx context.Context, id, displayName, email string) (model.User, error) {
 	user, err := scanUser(s.pool.QueryRow(ctx, `UPDATE users SET display_name=$2,email=$3,updated_at=now()
-        WHERE id=$1 RETURNING id,username,display_name,email,role,active,personal_key_version,created_at,updated_at`,
+			WHERE id=$1 RETURNING id,username,display_name,email,role,active,auth_source,personal_key_version,
+			(SELECT max(s.created_at) FROM sessions s WHERE s.user_id=users.id AND s.kind='session'),created_at,updated_at`,
 		id, strings.TrimSpace(displayName), strings.TrimSpace(email)))
 	return user, mapError(err)
 }
@@ -355,14 +366,16 @@ func (s *Store) UpsertOIDCUser(ctx context.Context, issuer, subject, username, e
 		user, err = scanUser(tx.QueryRow(ctx, `INSERT INTO users
 			(id,username,display_name,email,role,active,auth_source,external_issuer,external_subject)
 			VALUES($1,$2,$3,$4,'user',true,'oidc',$5,$6)
-			RETURNING id,username,display_name,email,role,active,personal_key_version,created_at,updated_at`,
+			RETURNING id,username,display_name,email,role,active,auth_source,personal_key_version,
+			NULL::timestamptz,created_at,updated_at`,
 			id, username, displayName, email, issuer, subject))
 		if err == nil {
 			err = s.ensureUserKeyTx(ctx, tx, user.ID, 1)
 		}
 	} else if err == nil {
 		user, err = scanUser(tx.QueryRow(ctx, `UPDATE users SET email=$2,display_name=$3,updated_at=now()
-            WHERE id=$1 RETURNING id,username,display_name,email,role,active,personal_key_version,created_at,updated_at`,
+			WHERE id=$1 RETURNING id,username,display_name,email,role,active,auth_source,personal_key_version,
+			(SELECT max(s.created_at) FROM sessions s WHERE s.user_id=users.id AND s.kind='session'),created_at,updated_at`,
 			user.ID, email, displayName))
 	}
 	if err != nil {

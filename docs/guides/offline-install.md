@@ -1,6 +1,6 @@
 # 오프라인 설치 가이드
 
-이 절차는 `jikim:v0.1.0` 서비스 이미지를 `jikim-v0.1.0.tar.gz`로 반입하는 단일 노드 Docker 배포 프로파일입니다. PostgreSQL 설치와 백업은 운영 조직의 표준 절차를 따릅니다.
+이 절차는 `jikim:v0.2.0` 서비스 이미지를 `jikim-v0.2.0.tar.gz`로 반입하는 단일 노드 Docker 배포 프로파일입니다. PostgreSQL 설치와 백업은 운영 조직의 표준 절차를 따릅니다.
 
 ## 준비 사항
 
@@ -18,15 +18,15 @@
 GitHub Release에서 다음 두 파일을 같은 디렉터리에 받습니다.
 
 ```text
-jikim-v0.1.0.tar.gz
-jikim-v0.1.0.tar.gz.sha256
+jikim-v0.2.0.tar.gz
+jikim-v0.2.0.tar.gz.sha256
 ```
 
 체크섬을 먼저 검증합니다.
 
 ```bash
-sha256sum --check jikim-v0.1.0.tar.gz.sha256
-gzip --test jikim-v0.1.0.tar.gz
+sha256sum --check jikim-v0.2.0.tar.gz.sha256
+gzip --test jikim-v0.2.0.tar.gz
 ```
 
 성공 결과와 릴리스 URL, 반입 담당자, 시각을 반입 기록에 남깁니다.
@@ -36,12 +36,12 @@ gzip --test jikim-v0.1.0.tar.gz
 매체에서 복사한 뒤 동일한 체크섬 명령을 다시 실행합니다. 체크섬이 다르면 이미지를 적재하지 말고 반입 파일을 폐기한 뒤 다시 확보합니다.
 
 ```bash
-sha256sum --check jikim-v0.1.0.tar.gz.sha256
-docker load --input jikim-v0.1.0.tar.gz
-docker image inspect jikim:v0.1.0 --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'
+sha256sum --check jikim-v0.2.0.tar.gz.sha256
+docker load --input jikim-v0.2.0.tar.gz
+docker image inspect jikim:v0.2.0 --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'
 ```
 
-마지막 명령 결과는 `v0.1.0`이어야 합니다.
+마지막 명령 결과는 `v0.2.0`이어야 합니다.
 
 ## 3. PostgreSQL 준비
 
@@ -80,7 +80,22 @@ docker compose up --detach
 
 셸 히스토리와 프로세스 목록 노출을 피하려면 운영 환경의 안전한 환경 주입 방식을 사용하십시오. 위 코드는 변수 이름을 설명하기 위한 예시입니다.
 
-## 6. 상태 확인
+## 6. 내부 CA 고정 경로 연결
+
+내부 CA로 서명된 Keycloak, AI Gateway 또는 Webhook endpoint를 호출해야 한다면 CA 인증서 또는 PEM bundle을 Compose 디렉터리의 `certs/internal-ca.crt`에 배치합니다. 개인 키는 이 파일에 넣지 마십시오.
+
+```bash
+install --directory --mode 0755 certs
+install --mode 0444 /안전한/반입경로/internal-ca.crt certs/internal-ca.crt
+docker compose -f docker-compose.yml -f docker-compose.internal-ca.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.internal-ca.yml up --detach
+```
+
+`docker-compose.internal-ca.yml`은 이 파일을 컨테이너의 고정 경로 `/app/certs/internal-ca.crt`에 read-only로 mount합니다. jikim은 시작할 때 해당 PEM을 시스템 신뢰 저장소에 추가하여 OIDC Discovery·Token/JWKS, AI, Webhook의 outbound HTTPS에 사용합니다. 파일 교체 후에는 컨테이너를 재시작하고 각 관리 화면의 연결 테스트를 다시 실행합니다.
+
+이 mount는 PostgreSQL TLS 설정을 대체하지 않습니다. PostgreSQL CA 신뢰는 DSN과 조직의 PostgreSQL/컨테이너 표준에 따라 별도로 구성하십시오. 인증서 검증을 끄거나 네 환경변수 외의 임의 CA 환경변수를 추가하는 방식은 배포 계약이 아닙니다.
+
+## 7. 상태 확인
 
 ```bash
 curl --fail --silent http://127.0.0.1:8080/healthz
@@ -93,9 +108,9 @@ docker compose logs --tail 100 jikim
 - `/readyz`: PostgreSQL 등 필수 의존성을 포함한 준비 상태 확인
 - `/v1/sys/health`: OpenBao 제한 호환 프로파일 상태 응답
 
-서비스 개방 전 로그인 화면과 프로필 메뉴의 버전이 `v0.1.0`인지 확인합니다.
+서비스 개방 전 로그인 화면과 프로필 메뉴의 버전이 `v0.2.0`인지 확인합니다.
 
-## 7. TLS와 네트워크
+## 8. TLS와 네트워크
 
 이미지는 8080 HTTP 포트를 제공합니다. 운영에서는 내부 Load Balancer 또는 Reverse Proxy에서 TLS를 종료하고 다음을 제한합니다.
 
@@ -106,7 +121,11 @@ docker compose logs --tail 100 jikim
 
 관리 콘솔을 인터넷에 직접 노출하지 마십시오.
 
-## 8. 백업과 복구
+Keycloak에는 외부 서비스 Origin 기준의 절대 callback `https://<서비스 Origin>/api/v1/oidc/callback`을 정확히 등록합니다. 프런트엔드 SPA 경로 `/oidc/callback`을 Keycloak callback으로 등록하지 마십시오. TLS 종료 프록시는 원래 `Host`와 `X-Forwarded-Proto`를 보존해야 같은 Origin 검증이 정상 동작합니다.
+
+Webhook 수신기는 jikim에서 접근 가능한 내부 주소에 두고 HTTP 2xx를 10초 안에 반환하도록 구성합니다. 수신 측 시계를 동기화하고 `X-Jikim-Timestamp`, `X-Jikim-Delivery`, `X-Jikim-Signature-256`을 검증합니다. AI Gateway는 OpenAI-compatible Chat Completions SSE를 제공해야 하며 연결 테스트에서도 `text/event-stream`과 `data:` 이벤트를 반환해야 합니다.
+
+## 9. 백업과 복구
 
 서비스 상태의 원본은 PostgreSQL 암호문과 마스터 `ENCRYPTION_KEY`입니다. 둘을 서로 다른 통제 영역에 백업합니다.
 
@@ -115,10 +134,11 @@ docker compose logs --tail 100 jikim
 3. 복구 격리망에 같은 버전 이미지 적재
 4. DB 복구 후 같은 키로 `/readyz`와 로그인 검증
 5. Secret 샘플 복호화 및 감사 이벤트 확인
+6. OIDC, AI SSE, 서명 Webhook 테스트와 Webhook 전송 이력 조회
 
 백업만 생성하고 복구를 시험하지 않은 상태는 복구 가능 상태가 아닙니다.
 
-## 9. 업그레이드와 롤백
+## 10. 업그레이드와 롤백
 
 1. 새 번들의 체크섬과 호환성 프로파일 확인
 2. DB 백업 및 복구 지점 기록

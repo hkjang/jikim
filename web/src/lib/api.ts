@@ -46,6 +46,13 @@ export const patch = <T>(path: string, data?: unknown) => api<T>(path, { method:
 export const put = <T>(path: string, data?: unknown) => api<T>(path, { method: 'PUT', body: JSON.stringify(data) });
 export const del = <T>(path: string) => api<T>(path, { method: 'DELETE' });
 
+export const simulatePolicy = <T>(input: { user_id?: string; path: string; capability: string }) =>
+  post<T>('/policies/simulate', input);
+
+export const testAIIntegration = <T>() => post<T>('/integrations/ai/test', {});
+
+export const testWebhookIntegration = <T>() => post<T>('/integrations/webhook/test', {});
+
 export async function streamChat(
   payload: { messages: Array<{ role: string; content: string }>; max_tokens?: number },
   onChunk: (text: string) => void,

@@ -137,7 +137,8 @@ func (s *Store) BootstrapAdmin(ctx context.Context, username, rawPassword string
 		user, err = scanUser(tx.QueryRow(ctx, `INSERT INTO users
             (id, username, display_name, password_hash, role, active)
             VALUES($1,$2,$2,$3,'admin',true)
-            RETURNING id, username, display_name, email, role, active, personal_key_version, created_at, updated_at`, id, username, hash))
+			RETURNING id, username, display_name, email, role, active, auth_source,
+			personal_key_version, NULL::timestamptz, created_at, updated_at`, id, username, hash))
 		created = true
 	} else if err == nil && (user.Role != "admin" || !user.Active) {
 		return model.User{}, false, errors.New("BOOTSTRAP_ADMIN과 같은 기존 계정이 관리자 활성 상태가 아닙니다; 자동 승격하지 않습니다")
@@ -154,15 +155,18 @@ func (s *Store) BootstrapAdmin(ctx context.Context, username, rawPassword string
 	return user, created, nil
 }
 
-const userSelect = `SELECT id, username, display_name, email, role, active,
-    personal_key_version, created_at, updated_at FROM users`
+const userSelect = `SELECT id, username, display_name, email, role, active, auth_source,
+    personal_key_version,
+    (SELECT max(s.created_at) FROM sessions s WHERE s.user_id=users.id AND s.kind='session'),
+    created_at, updated_at FROM users`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanUser(row rowScanner) (model.User, error) {
 	var user model.User
 	err := row.Scan(&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Role,
-		&user.Active, &user.PersonalKeyVersion, &user.CreatedAt, &user.UpdatedAt)
+		&user.Active, &user.AuthSource, &user.PersonalKeyVersion, &user.LastLoginAt,
+		&user.CreatedAt, &user.UpdatedAt)
 	return user, err
 }
 

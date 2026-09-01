@@ -3,12 +3,14 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/hkjang/jikim/internal/model"
+	"github.com/hkjang/jikim/internal/store"
 )
 
 func TestValidateAIInputMessagesAndTokenLimit(t *testing.T) {
@@ -59,15 +61,29 @@ func TestServerAIContextContainsOnlyServerOwnedAggregates(t *testing.T) {
 
 func TestChatCompletionsURL(t *testing.T) {
 	tests := map[string]string{
-		"https://ai.example":                     "https://ai.example/v1/chat/completions",
-		"https://ai.example/v1":                  "https://ai.example/v1/chat/completions",
-		"https://ai.example/v1/chat/completions": "https://ai.example/v1/chat/completions",
+		"https://ai.example":                                            "https://ai.example/v1/chat/completions",
+		"https://ai.example/v1":                                         "https://ai.example/v1/chat/completions",
+		"https://ai.example/v1/chat/completions":                        "https://ai.example/v1/chat/completions",
+		"https://ai.example/v1/chat/completions?api-version=2026-01-01": "https://ai.example/v1/chat/completions?api-version=2026-01-01",
 	}
 	for input, want := range tests {
 		got, err := chatCompletionsURL(input)
 		if err != nil || got != want {
 			t.Errorf("chatCompletionsURL(%q)=%q,%v want %q", input, got, err, want)
 		}
+	}
+}
+
+func TestApplyAIAuthenticationProfiles(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "https://ai.example/v1/chat/completions", nil)
+	applyAIAuthentication(request, store.AIConfig{APIKey: "secret", AuthType: "api-key"})
+	if request.Header.Get("api-key") != "secret" || request.Header.Get("Authorization") != "" {
+		t.Fatalf("api-key auth headers=%v", request.Header)
+	}
+	request = httptest.NewRequest(http.MethodPost, "https://ai.example/v1/chat/completions", nil)
+	applyAIAuthentication(request, store.AIConfig{APIKey: "secret", AuthType: "bearer"})
+	if request.Header.Get("Authorization") != "Bearer secret" {
+		t.Fatalf("bearer auth header=%q", request.Header.Get("Authorization"))
 	}
 }
 
@@ -85,9 +101,13 @@ func TestOIDCRedirectAndRoleMapping(t *testing.T) {
 	if _, sync := synchronizedOIDCRole(map[string]any{}, ""); sync {
 		t.Fatal("role synchronization enabled without a configured role claim")
 	}
-	groupClaims := map[string]any{"groups": []any{"/platform/jikim-auditor"}}
+	groupClaims := map[string]any{"groups": []any{"jikim-auditor"}}
 	if role, sync := synchronizedOIDCRoleClaims(groupClaims, "realm_access.roles", "groups"); !sync || role != "auditor" {
 		t.Fatalf("group claim mapping failed: role=%q sync=%v", role, sync)
+	}
+	pathGroupClaims := map[string]any{"groups": []any{"/platform/jikim-auditor"}}
+	if role, sync := synchronizedOIDCRoleClaims(pathGroupClaims, "realm_access.roles", "groups"); !sync || role != "user" {
+		t.Fatalf("path-like group escalated role: role=%q sync=%v", role, sync)
 	}
 	if role, sync := synchronizedOIDCRoleClaims(map[string]any{}, "", "groups"); !sync || role != "user" {
 		t.Fatalf("removed group claim did not downgrade: role=%q sync=%v", role, sync)
@@ -124,6 +144,23 @@ func TestOpenBaoTransitEndpointsDenyWithoutAuthorization(t *testing.T) {
 				t.Fatalf("unexpected body: %s", response.Body.String())
 			}
 		})
+	}
+}
+
+func TestOpenBaoTransitDecryptWithholdsPlaintextWhenAuditFails(t *testing.T) {
+	server := &Server{
+		transitAuthorizer: func(context.Context, model.User, string, string) (bool, error) { return true, nil },
+		transitDecryptor:  func(context.Context, string, string) (string, error) { return "aGVsbG8=", nil },
+		auditRecorder:     func(context.Context, model.AuditEvent) error { return errors.New("audit offline") },
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/transit/decrypt/customer", strings.NewReader(`{"ciphertext":"vault:v1:test"}`))
+	request.SetPathValue("key", "customer")
+	request = request.WithContext(context.WithValue(request.Context(), sessionKey,
+		model.Session{User: model.User{ID: "user-1", Username: "hong", Role: "user"}}))
+	response := httptest.NewRecorder()
+	server.baoTransitDecrypt(response, request)
+	if response.Code != http.StatusServiceUnavailable || strings.Contains(response.Body.String(), "aGVsbG8=") {
+		t.Fatalf("plaintext was not withheld: status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

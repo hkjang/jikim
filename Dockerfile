@@ -7,7 +7,7 @@ ARG RUNTIME_IMAGE=alpine:3.22
 FROM ${NODE_IMAGE} AS web-build
 WORKDIR /src/web
 
-ARG VERSION=v0.1.0
+ARG VERSION=v0.2.0
 ENV VITE_APP_VERSION=${VERSION}
 
 COPY web/package*.json ./
@@ -22,7 +22,7 @@ WORKDIR /src
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-ARG VERSION=v0.1.0
+ARG VERSION=v0.2.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 
@@ -44,7 +44,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM ${RUNTIME_IMAGE} AS runtime
 
-ARG VERSION=v0.1.0
+ARG VERSION=v0.2.0
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 

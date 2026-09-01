@@ -7,6 +7,7 @@ export interface User {
   email?: string;
   role: Role | string;
   status?: string;
+  auth_source?: string;
   last_login_at?: string;
   created_at?: string;
 }
@@ -15,6 +16,9 @@ export interface SecretRecord {
   id: string;
   path: string;
   name?: string;
+  description?: string;
+  application_id?: string;
+  owner_user_id?: string;
   owner?: string;
   application?: string;
   environment?: string;
@@ -27,6 +31,7 @@ export interface SecretRecord {
   created_at?: string;
   data?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+  capabilities?: string[];
 }
 
 export interface ApplicationRecord {
@@ -84,14 +89,41 @@ export interface DashboardData {
   secrets?: number;
   applications?: number;
   users?: number;
+  policies?: number;
   keys?: number;
-  high_risk?: number;
-  expiring?: number;
-  rotation_failed?: number;
   pending_approvals?: number;
+  high_risk_secrets?: number;
+  healthy_secrets?: number;
+  attention_secrets?: number;
   security_score?: number;
   recent_audit?: AuditRecord[];
-  risk_distribution?: Array<{ name: string; value: number }>;
+}
+
+export interface PolicySimulationMatch {
+  policy_id?: string;
+  policy_name?: string;
+  path?: string;
+  rule_path?: string;
+  capabilities?: string[];
+  grants?: boolean;
+}
+
+export interface PolicySimulationResult {
+  allowed: boolean;
+  user_id?: string;
+  username?: string;
+  role_override?: boolean;
+  matches?: PolicySimulationMatch[];
+}
+
+export interface IntegrationTestResult {
+  ok: boolean;
+  latency_ms?: number;
+  endpoint?: string;
+  profile?: string;
+  status?: string | number;
+  status_code?: number;
+  message?: string;
 }
 
 export interface SystemSettings {

@@ -37,9 +37,10 @@ import {
   Trash2,
   Users,
 } from 'lucide-react';
-import { del, get, patch, post, put } from '../../lib/api';
+import { del, get, patch, post, put, simulatePolicy } from '../../lib/api';
 import { formatDate } from '../../lib/format';
 import { useAuth } from '../../contexts/AuthContext';
+import type { PolicySimulationResult } from '../../lib/types';
 
 type Capability = 'create' | 'read' | 'update' | 'delete' | 'list' | 'rotate' | 'encrypt' | 'decrypt';
 
@@ -177,14 +178,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '요청을 처리하지 못했습니다.';
 }
 
-function matchesPath(pattern: string, requestedPath: string): boolean {
-  const normalizedPattern = pattern.trim().replace(/^\/+|\/+$/g, '');
-  const normalizedPath = requestedPath.trim().replace(/^\/+|\/+$/g, '');
-  if (normalizedPattern === '*') return true;
-  if (normalizedPattern.endsWith('*')) return normalizedPath.startsWith(normalizedPattern.slice(0, -1));
-  return normalizedPattern === normalizedPath;
-}
-
 function PolicyLoading() {
   return (
     <Stack gap="lg" aria-label="정책을 불러오는 중">
@@ -203,10 +196,9 @@ export function PoliciesPage() {
   const [draft, setDraft] = useState<PolicyDraft>(emptyDraft);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PolicyRecord | null>(null);
-  const [simulationPolicyId, setSimulationPolicyId] = useState<string | null>(null);
+  const [simulationUserId, setSimulationUserId] = useState<string | null>(null);
   const [simulationPath, setSimulationPath] = useState('production/payment/database');
   const [simulationCapability, setSimulationCapability] = useState<Capability>('read');
-  const [simulationRun, setSimulationRun] = useState(false);
   const [assignmentTarget, setAssignmentTarget] = useState<PolicyRecord | null>(null);
   const [assignmentDraft, setAssignmentDraft] = useState<string[]>([]);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
@@ -221,7 +213,7 @@ export function PoliciesPage() {
   const usersQuery = useQuery({
     queryKey: ['policy-user-options'],
     queryFn: () => get<unknown>('/users?limit=500'),
-    enabled: !authLoading && canManage,
+    enabled: !authLoading && Boolean(user),
   });
   const users = useMemo(() => normalizeUsers(usersQuery.data).filter((item) => item.active !== false), [usersQuery.data]);
 
@@ -247,6 +239,17 @@ export function PoliciesPage() {
       notifications.show({ color: 'teal', title: '정책 삭제 완료', message: '선택한 정책을 삭제했습니다.' });
     },
   });
+
+  const simulationMutation = useMutation({
+    mutationFn: () => simulatePolicy<PolicySimulationResult>({
+      user_id: simulationUserId || user?.id,
+      path: simulationPath.trim(),
+      capability: simulationCapability,
+    }),
+  });
+  const simulationSubjectRole = simulationUserId
+    ? users.find((item) => item.id === simulationUserId)?.role
+    : user?.role;
 
   const openCreate = () => {
     if (!canManage) return;
@@ -310,11 +313,6 @@ export function PoliciesPage() {
       setAssignmentLoading(false);
     }
   };
-
-  const simulatedPolicy = policies.find((policy) => policy.id === simulationPolicyId);
-  const matchedRule = simulationRun && simulatedPolicy
-    ? simulatedPolicy.rules.find((rule) => matchesPath(rule.path, simulationPath) && rule.capabilities.includes(simulationCapability))
-    : undefined;
 
   if (authLoading || policyQuery.isPending) return <PolicyLoading />;
   if (!user) return <Alert color="red" title="로그인이 필요합니다" role="alert">접근 정책을 조회하려면 다시 로그인하세요.</Alert>;
@@ -393,47 +391,69 @@ export function PoliciesPage() {
           <Group align="flex-start" wrap="nowrap">
             <ThemeIcon color="violet" variant="light" size="lg"><FlaskConical size={20} /></ThemeIcon>
             <Box>
-              <Title order={2} size="h3">간단 정책 시뮬레이터</Title>
-              <Text c="dimmed" mt={3}>저장된 단일 정책의 path/capability 일치 여부를 브라우저에서 확인합니다. 사용자 최종 권한 판정은 서버가 수행합니다.</Text>
+              <Title order={2} size="h3">정책 시뮬레이터</Title>
+              <Text c="dimmed" mt={3}>사용자·경로·capability를 서버 정책 엔진으로 판정합니다. 역할 우회와 실제 일치 규칙을 함께 확인합니다.</Text>
             </Box>
           </Group>
           <SimpleGrid cols={{ base: 1, md: 3 }} spacing="lg">
             <Select
-              label="정책"
-              placeholder="정책 선택"
+              label="사용자"
+              placeholder="현재 사용자"
               searchable
-              data={policies.map((policy) => ({ value: policy.id, label: policy.name }))}
-              value={simulationPolicyId}
-              onChange={(value) => { setSimulationPolicyId(value); setSimulationRun(false); }}
+              data={[
+                { value: '__current__', label: `현재 사용자 (${user.display_name || user.username})` },
+                ...users.filter((item) => item.id !== user.id).map((item) => ({ value: item.id, label: `${item.display_name || item.username} (${item.username})` })),
+              ]}
+              value={simulationUserId || '__current__'}
+              onChange={(value) => { setSimulationUserId(value === '__current__' ? null : value); simulationMutation.reset(); }}
             />
             <TextInput
               label="요청 경로"
               placeholder="production/payment/database"
               value={simulationPath}
-              onChange={(event) => { setSimulationPath(event.currentTarget.value); setSimulationRun(false); }}
+              onChange={(event) => { setSimulationPath(event.currentTarget.value); simulationMutation.reset(); }}
             />
             <Select
               label="요청 capability"
               data={capabilities}
               value={simulationCapability}
-              onChange={(value) => { setSimulationCapability((value || 'read') as Capability); setSimulationRun(false); }}
+              onChange={(value) => { setSimulationCapability((value || 'read') as Capability); simulationMutation.reset(); }}
             />
           </SimpleGrid>
           <Group>
-            <Button variant="light" leftSection={<FlaskConical size={17} />} disabled={!simulationPolicyId || !simulationPath.trim()} onClick={() => setSimulationRun(true)}>
-              결과 확인
+            <Button variant="light" leftSection={<FlaskConical size={17} />} loading={simulationMutation.isPending} disabled={!simulationPath.trim()} onClick={() => simulationMutation.mutate()}>
+              서버에서 판정
             </Button>
           </Group>
-          {simulationRun && (
+          {simulationMutation.isError && (
+            <Alert role="alert" color="red" icon={<CircleAlert size={18} />} title="정책 판정을 완료하지 못했습니다">
+              {errorMessage(simulationMutation.error)}
+            </Alert>
+          )}
+          {simulationMutation.isSuccess && (
             <Alert
               role="status"
-              color={matchedRule ? 'teal' : 'red'}
-              icon={matchedRule ? <CheckCircle2 size={18} /> : <ShieldX size={18} />}
-              title={matchedRule ? '정책상 허용' : '정책상 거부'}
+              color={simulationMutation.data.allowed ? 'teal' : 'red'}
+              icon={simulationMutation.data.allowed ? <CheckCircle2 size={18} /> : <ShieldX size={18} />}
+              title={simulationMutation.data.allowed ? '최종 권한 허용' : '최종 권한 거부'}
             >
-              {matchedRule
-                ? `${matchedRule.path} 규칙이 ${simulationCapability} 요청을 허용합니다.`
-                : '선택한 정책에서 요청 경로와 capability에 일치하는 허용 규칙을 찾지 못했습니다.'}
+              <Stack gap="xs">
+                <Text>{simulationMutation.data.role_override
+                  ? `${simulationSubjectRole || '선택한 사용자'} 역할의 기본 권한으로 허용됐습니다.`
+                  : simulationMutation.data.allowed
+                    ? `${simulationPath} 경로의 ${simulationCapability} 요청을 허용하는 정책이 있습니다.`
+                    : '사용자에게 할당된 정책과 역할에서 이 요청을 허용하는 규칙을 찾지 못했습니다.'}</Text>
+                {Boolean(simulationMutation.data.matches?.length) && (
+                  <Group gap="xs">
+                    {simulationMutation.data.matches?.map((match, index) => {
+                      const matchedPath = match.rule_path || match.path;
+                      return <Badge key={`${match.policy_id || match.policy_name || 'match'}-${matchedPath || index}`} variant="light" color={match.grants === false ? 'gray' : undefined}>
+                        {match.policy_name || match.policy_id || '일치 정책'}{matchedPath ? ` · ${matchedPath}` : ''}
+                      </Badge>
+                    })}
+                  </Group>
+                )}
+              </Stack>
             </Alert>
           )}
         </Stack>

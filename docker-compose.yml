@@ -2,7 +2,7 @@ name: jikim
 
 services:
   jikim:
-    image: jikim:v0.1.0
+    image: jikim:v0.2.0
     restart: unless-stopped
     init: true
     ports:

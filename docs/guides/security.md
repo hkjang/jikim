@@ -1,6 +1,6 @@
 # 보안 운영 가이드
 
-이 문서는 jikim `v0.1.0`의 보안 경계와 운영자가 추가로 구성해야 할 통제를 설명합니다. Secret 관리 서비스 자체가 단일 실패 지점이 되지 않도록 애플리케이션, 데이터베이스, 키, 네트워크와 운영자 권한을 함께 다룹니다.
+이 문서는 jikim `v0.2.0`의 보안 경계와 운영자가 추가로 구성해야 할 통제를 설명합니다. Secret 관리 서비스 자체가 단일 실패 지점이 되지 않도록 애플리케이션, 데이터베이스, 키, 네트워크와 운영자 권한을 함께 다룹니다.
 
 ## 위협 모델과 신뢰 경계
 
@@ -14,7 +14,7 @@ jikim은 다음을 가정합니다.
 
 ## 저장 암호화
 
-v0.1.0 저장 암호화는 AES-256-GCM을 사용합니다. GCM nonce와 인증 태그로 암호문 변조를 탐지하며, 사용자 키와 Secret 버전은 암호문 형태로 PostgreSQL에 저장합니다.
+v0.2.0 저장 암호화는 AES-256-GCM을 사용합니다. GCM nonce와 인증 태그로 암호문 변조를 탐지하며, 사용자 키와 Secret 버전은 암호문 형태로 PostgreSQL에 저장합니다.
 
 `ENCRYPTION_KEY` 허용 형식:
 
@@ -59,13 +59,20 @@ Reverse Proxy가 TLS를 종료한다면 신뢰할 수 있는 Proxy만 `X-Forward
 
 - Issuer 정확히 일치
 - Authorization Code Flow 사용
+- state, nonce와 PKCE S256 검증
 - Redirect URI와 Web Origin 최소화
 - Client Secret 주기적 회전
 - 서명 알고리즘과 JWKS 검증
-- 관리자 역할은 전용 그룹으로 제한
+- 관리자 역할은 전용 claim 값으로 제한
 - 비상 로컬 관리자 경로 정기 점검
 
-SSO가 활성화되어도 jikim 내부 정책과 감사는 계속 적용되어야 합니다. Keycloak 역할을 곧바로 전체 관리자 권한으로 매핑하지 마십시오.
+OIDC 활성화 시 관리자가 저장하는 `redirect_url`은 절대 `http(s)` URL이며 path가 정확히 `/api/v1/oidc/callback`이어야 합니다. 비-loopback HTTP는 `allow_insecure_http`를 명시해야 하지만, 폐쇄망에서도 가능한 한 TLS를 사용하십시오. jikim은 요청 `Host`를 사용해 OAuth callback을 만들지 않습니다. SPA callback은 상대 `/oidc/callback`만 유지하며 다른 Origin은 거부합니다. Keycloak의 Valid Redirect URI도 wildcard 대신 이 한 주소로 제한하십시오.
+
+역할 승격은 대소문자까지 정확히 일치하는 `jikim-admin`, `jikim-manager`, `jikim-auditor`, `jikim-user`만 허용합니다. `admin`, `/org/admin`, `/org/jikim-admin` 또는 대문자 변형은 인식하지 않습니다. 여러 전용 역할이 동시에 들어오면 `user`로 낮아지므로 Keycloak mapper가 한 역할만 발행하도록 구성합니다. role/group 동기화를 켠 상태에서 인식 가능한 값이 사라져도 이전 관리자 역할을 유지하지 않습니다.
+
+공급자 오류는 원문 설명을 SPA redirect에 다시 반영하지 않고 일반화된 상대 경로 오류로 변환합니다. `GET /api/v1/oidc/logout`은 로컬 토큰 폐기와 쿠키 제거를 먼저 수행한 다음 discovery의 `end_session_endpoint`로 이동하므로 공급자 장애가 로컬 로그아웃을 막지 않습니다. 현재 프로파일에는 ID Token hint, back-channel logout, 공급자 주도 세션 폐기 알림이 없으므로 Keycloak 세션 수명과 jikim 세션 수명을 별도로 제한하십시오.
+
+SSO가 활성화되어도 jikim 내부 정책과 감사는 계속 적용됩니다. Keycloak 역할 이름이 있다는 이유만으로 OpenBao 또는 jikim policy가 자동 생성된다고 가정하지 마십시오.
 
 ## 권한과 승인
 
@@ -74,6 +81,31 @@ SSO가 활성화되어도 jikim 내부 정책과 감사는 계속 적용되어�
 승인 워크플로는 관리자가 활성화한 작업에만 적용됩니다. 비활성 상태에서 승인 절차가 있다고 가정하지 마십시오. 활성화할 때는 요청자와 승인자를 다르게 하고, 운영·고위험 대상부터 적용합니다.
 
 MCP와 API 탐색기도 현재 사용자 권한을 그대로 적용해야 합니다. 새로운 인터페이스가 기존 정책을 우회하지 않는지 릴리스 테스트에 포함합니다.
+
+## MCP 전송과 도구 경계
+
+`/mcp`는 인증된 stateless POST endpoint입니다. 다음은 initialize 이후 요청의 전체 헤더 예시입니다.
+
+```http
+Content-Type: application/json
+Accept: application/json, text/event-stream
+MCP-Protocol-Version: 2025-11-25
+```
+
+`Content-Type`과 두 Accept media type은 initialize를 포함한 모든 POST에 필요합니다. `MCP-Protocol-Version`은 `initialize` 요청에서만 생략할 수 있고, 후속 요청에서는 `2025-11-25` 또는 `2025-06-18`이어야 합니다. `GET /mcp`는 `405`이며 이 버전은 서버 발 SSE stream, MCP session ID와 resume을 제공하지 않습니다.
+
+브라우저가 `Origin`을 보내면 요청 scheme·host와 동일해야 하며 불일치 요청은 인증 처리 전에 `403`으로 거부됩니다. Origin이 없는 비브라우저 요청은 허용되므로 네트워크 ACL과 Bearer 토큰 보호를 별도로 적용합니다. Reverse Proxy는 `Host`와 `X-Forwarded-Proto`를 신뢰된 값으로 덮어쓰고 외부 입력을 그대로 전달하지 마십시오.
+
+도구별 보안 경계:
+
+- `secrets.list`는 `list` capability를 SQL pagination 전에 적용하며 값은 반환하지 않습니다.
+- `secrets.metadata`는 정확한 path의 `read` capability를 요구하고 값은 반환하지 않습니다.
+- `access.check`는 현재 세션 사용자의 권한만 계산하며 다른 `user_id`를 받지 않습니다.
+- 정책과 감사 검색은 `admin`, `manager`, `auditor`만 사용할 수 있습니다.
+- `transit.encrypt/decrypt`는 path policy와 이름 있는 key의 operation 권한을 모두 확인합니다.
+- `transit.decrypt`는 tool 이름과 key가 식별되는 감사를 응답 전에 저장하며, 감사 저장에 실패하면 복호화 결과를 폐기합니다.
+
+JSON-RPC notification에는 `id`를 넣지 않으며 응답은 `202`와 빈 본문입니다. 알 수 없는 인자나 `user_id` 같은 확장 필드를 임의로 보내지 않습니다. MCP 도구 오류가 HTTP `200`의 `isError=true`로 표현될 수 있으므로 HTTP 상태만으로 성공을 판단하지 마십시오.
 
 ## AI 데이터 경계
 
@@ -93,6 +125,8 @@ AI 모델에 보낼 수 있는 기본 범위는 Secret ID, 마스킹된 경로, 
 ## 감사
 
 API, `/v1/*`, MCP 요청은 요청 ID, 사용자, 동작, 리소스, 결과, IP, User-Agent와 시각을 중심으로 기록합니다. 감사 이벤트에 요청·응답 전체 본문이나 Secret 평문을 넣지 않습니다.
+
+OpenBao KV data 읽기와 Transit 복호화는 민감 결과를 응답하기 전에 별도 disclosure 감사를 저장합니다. 해당 감사 저장이 실패하면 API는 Secret 또는 평문을 내보내지 않습니다. MCP Transit 복호화도 일반 `/mcp` 요청 감사 외에 tool/key가 들어간 이벤트를 별도로 남깁니다. 감사 DB 가용성 장애가 민감 조회 장애로 이어지는 것은 의도한 fail-closed 동작입니다.
 
 운영자는 다음을 알림 또는 정기 검토 대상으로 삼습니다.
 
@@ -118,7 +152,7 @@ API, `/v1/*`, MCP 요청은 요청 ID, 사용자, 동작, 리소스, 결과, IP,
 - 호스트 Docker socket을 컨테이너에 마운트하지 않음
 - 이미지 SBOM·취약점 검사와 서명 절차 도입
 
-v0.1.0 릴리스 자동화는 이미지 번들과 SHA-256을 생성하지만, 서명·SBOM·취약점 검사 도구가 별도 공급망 절차 없이 자동 제공된다고 가정하지 마십시오.
+v0.2.0 릴리스 자동화는 이미지 번들과 SHA-256을 생성하지만, 서명·SBOM·취약점 검사 도구가 별도 공급망 절차 없이 자동 제공된다고 가정하지 마십시오.
 
 ## 백업과 사고 대응
 

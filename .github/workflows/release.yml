@@ -7,22 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '기존 태그(예: v0.1.0). 수동 실행은 릴리스를 재검증할 때만 사용합니다.'
+        description: '새 릴리스 태그(예: v0.2.0). 이미 발행된 릴리스 자산은 덮어쓰지 않습니다.'
         required: true
-        default: 'v0.1.0'
+        default: 'v0.2.0'
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   release:
     name: 이미지 검증 · 패키징 · GitHub Release
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -50,8 +50,14 @@ jobs:
             printf '원격에 존재하는 태그만 릴리스할 수 있습니다: %s\n' "${requested}" >&2
             exit 1
           }
+          tag_commit="$(git rev-list -n 1 "refs/tags/${requested}")"
+          head_commit="$(git rev-parse HEAD)"
+          if [[ "${head_commit}" != "${tag_commit}" ]]; then
+            printf '체크아웃 커밋(%s)과 태그 커밋(%s)이 다릅니다.\n' "${head_commit}" "${tag_commit}" >&2
+            exit 1
+          fi
           printf 'version=%s\n' "${requested}" >> "${GITHUB_OUTPUT}"
-          printf 'commit=%s\n' "$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          printf 'commit=%s\n' "${head_commit}" >> "${GITHUB_OUTPUT}"
 
       - name: Go 설정
         uses: actions/setup-go@v7
@@ -94,26 +100,35 @@ jobs:
       - name: 폐쇄망 스모크 테스트
         run: ./scripts/smoke-offline.sh "jikim:${{ steps.version.outputs.version }}"
 
+      - name: 브라우저 준비
+        run: npm --prefix web exec -- playwright install --with-deps chromium
+
+      - name: 전체 화면 브라우저 E2E
+        run: ./scripts/e2e-docker.sh "jikim:${{ steps.version.outputs.version }}"
+
       - name: 오프라인 이미지 패키징
         run: ./scripts/package-offline.sh release
 
       - name: 번들 무결성 및 이미지 태그 검증
         run: ./scripts/verify-offline-bundle.sh "release/jikim-${{ steps.version.outputs.version }}.tar.gz"
 
-      - name: GitHub Release 생성
+      - name: GitHub Release 초안 생성 · 자산 확인 · 게시
         run: |
           if gh release view "${{ steps.version.outputs.version }}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${{ steps.version.outputs.version }}" \
-              "release/jikim-${{ steps.version.outputs.version }}.tar.gz" \
-              "release/jikim-${{ steps.version.outputs.version }}.tar.gz.sha256" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --clobber
-          else
-            gh release create "${{ steps.version.outputs.version }}" \
-              "release/jikim-${{ steps.version.outputs.version }}.tar.gz" \
-              "release/jikim-${{ steps.version.outputs.version }}.tar.gz.sha256" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --verify-tag \
-              --generate-notes \
-              --title "jikim ${{ steps.version.outputs.version }}"
+            printf '이미 존재하는 릴리스 자산은 덮어쓰지 않습니다: %s\n' "${{ steps.version.outputs.version }}" >&2
+            exit 1
           fi
+          gh release create "${{ steps.version.outputs.version }}" \
+            "release/jikim-${{ steps.version.outputs.version }}.tar.gz" \
+            "release/jikim-${{ steps.version.outputs.version }}.tar.gz.sha256" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --generate-notes \
+            --draft \
+            --title "jikim ${{ steps.version.outputs.version }}"
+          test "$(gh release view "${{ steps.version.outputs.version }}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets | length')" = 2
+          gh release edit "${{ steps.version.outputs.version }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --draft=false \
+            --latest

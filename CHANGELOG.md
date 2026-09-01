@@ -6,8 +6,36 @@
 
 ### 계획
 
-- v0.1.0 호환성 비교 테스트 범위 확대
+- OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
+
+## [0.2.0] - 2026-09-01
+
+### 추가
+
+- OpenAPI 3.1 문서와 `/api/v1/capabilities` 기계 판독 지원 프로파일
+- 정책 결과와 일치하는 Secret별 `capabilities` 및 관리자 정책 시뮬레이터
+- AI SSE 실연결 테스트, 사용자별 동시·분당 제한, Bearer/API-Key/무인증 프로파일
+- HMAC-SHA256 서명 Webhook 실제 전송, 이력, 연결 테스트와 수동 재시도 API
+- 고정 경로 내부 CA bundle을 사용하는 Keycloak·AI·Webhook TLS 연동
+- 실제 Docker 이미지의 전체 화면·새로 고침을 검증하는 Playwright 릴리스 게이트
+
+### 변경
+
+- Keycloak 역할 매핑은 정확한 `jikim-*` 값만 허용하고 충돌은 최소권한으로 처리
+- OIDC callback URL을 관리자 설정값으로 고정하고 Keycloak RP-initiated logout 지원
+- MCP Streamable HTTP stateless 계약을 2025-11-25/2025-06-18로 협상하며 Origin, JSON Content-Type, dual Accept와 protocol header를 검증
+- MCP에 현재 사용자의 `access.check`를 추가하고 Secret 목록 권한 필터를 pagination 전에 적용
+- OpenBao KV v2 제한 프로파일에 CAS, 버전 soft delete/undelete/destroy와 metadata hard delete 추가
+- OIDC 사용자 출처·최근 로그인, 역할별 승인 건수와 실제 Secret 위험 점수 기반 대시보드 표시
+- 릴리스 자산 재실행 시 기존 파일을 덮어쓰지 않는 불변 릴리스 정책
+
+### 보안
+
+- OIDC의 bare 역할명·경로형 그룹을 통한 관리자 권한 상승 차단
+- MCP와 OpenBao Transit/KV 평문 응답을 구체적 감사 기록 실패 시 차단
+- AI outbound redirect 차단, 설정 URL HTTPS 기본값과 명시적 내부 HTTP opt-in
+- 민감 설정의 명시적 삭제와 Webhook 서명 키 회전 지원
 
 ## [0.1.0] - 2026-09-01
 
@@ -64,5 +92,6 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/hkjang/jikim/releases/tag/v0.2.0
 [0.1.0]: https://github.com/hkjang/jikim/releases/tag/v0.1.0

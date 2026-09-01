@@ -8,28 +8,42 @@ import (
 
 	"github.com/hkjang/jikim/internal/cryptox"
 	"github.com/hkjang/jikim/internal/model"
+	"github.com/hkjang/jikim/internal/store"
 )
+
+type secretListResponse struct {
+	store.SecretListItem
+	Capabilities []string `json:"capabilities"`
+}
+
+type secretDetailResponse struct {
+	model.Secret
+	Capabilities []string `json:"capabilities"`
+}
 
 func (s *Server) listSecrets(w http.ResponseWriter, r *http.Request) {
 	limit, offset := parsePage(r)
-	items, err := s.store.ListSecretsFiltered(r.Context(), r.URL.Query().Get("q"), r.URL.Query().Get("environment"), limit, offset)
+	session, _ := sessionFrom(r)
+	items, err := s.store.ListSecretsAuthorizedFiltered(r.Context(), session.User,
+		r.URL.Query().Get("q"), r.URL.Query().Get("environment"), limit, offset)
 	if err != nil {
 		s.storeError(w, r, err)
 		return
 	}
-	session, _ := sessionFrom(r)
-	filtered := items[:0]
+	paths := make([]string, 0, len(items))
 	for _, item := range items {
-		allowed, accessErr := s.store.CanAccess(r.Context(), session.User, item.Path, "list")
-		if accessErr != nil {
-			s.storeError(w, r, accessErr)
-			return
-		}
-		if allowed {
-			filtered = append(filtered, item)
-		}
+		paths = append(paths, item.Path)
 	}
-	writeData(w, http.StatusOK, filtered)
+	capabilities, err := s.store.CapabilitiesForPaths(r.Context(), session.User, paths)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	result := make([]secretListResponse, 0, len(items))
+	for _, item := range items {
+		result = append(result, secretListResponse{SecretListItem: item, Capabilities: capabilities[item.Path]})
+	}
+	writeData(w, http.StatusOK, result)
 }
 
 func (s *Server) createSecret(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +61,7 @@ func (s *Server) createSecret(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusForbidden, "forbidden", "Secret 생성 권한이 없습니다")
 		return
 	}
-	s.putOrRequestSecret(w, r, input, session.User.ID, http.StatusCreated)
+	s.putOrRequestSecret(w, r, input, session.User.ID, http.StatusCreated, "secret.created")
 }
 
 func (s *Server) getSecret(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +87,12 @@ func (s *Server) getSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	secret.Data = nil
-	writeData(w, http.StatusOK, secret)
+	capabilities, err := s.store.CapabilitiesForPaths(r.Context(), session.User, []string{path})
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeData(w, http.StatusOK, secretDetailResponse{Secret: secret, Capabilities: capabilities[path]})
 }
 
 func (s *Server) revealSecret(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +196,7 @@ func (s *Server) rotateSecret(w http.ResponseWriter, r *http.Request) {
 	metadata["rotation_reason"] = strings.TrimSpace(input.Reason)
 	write := model.SecretWrite{Path: path, Description: current.Description, ApplicationID: current.ApplicationID,
 		OwnerUserID: current.OwnerUserID, Tags: current.Tags, Data: data, Metadata: metadata}
-	s.putOrRequestSecret(w, r, write, session.User.ID, http.StatusOK)
+	s.putOrRequestSecret(w, r, write, session.User.ID, http.StatusOK, "secret.rotated")
 }
 
 func cloneMap(source map[string]any) map[string]any {
@@ -209,10 +228,10 @@ func (s *Server) updateSecret(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusForbidden, "forbidden", "Secret 변경 권한이 없습니다")
 		return
 	}
-	s.putOrRequestSecret(w, r, input, session.User.ID, http.StatusOK)
+	s.putOrRequestSecret(w, r, input, session.User.ID, http.StatusOK, "secret.updated")
 }
 
-func (s *Server) putOrRequestSecret(w http.ResponseWriter, r *http.Request, input model.SecretWrite, actorID string, directStatus int) {
+func (s *Server) putOrRequestSecret(w http.ResponseWriter, r *http.Request, input model.SecretWrite, actorID string, directStatus int, eventType string) {
 	enabled, err := s.store.ApprovalRequired(r.Context(), "secret_write")
 	if err != nil {
 		s.storeError(w, r, err)
@@ -224,14 +243,19 @@ func (s *Server) putOrRequestSecret(w http.ResponseWriter, r *http.Request, inpu
 			s.storeError(w, r, err)
 			return
 		}
+		s.queueWebhook(r, "approval.requested", approval.Resource, map[string]any{"action": approval.Action, "approval_id": approval.ID})
 		writeData(w, http.StatusAccepted, approval)
 		return
 	}
 	secret, err := s.store.PutSecret(r.Context(), input, actorID)
 	if err != nil {
+		if eventType == "secret.rotated" {
+			s.queueWebhook(r, "rotation.failed", strings.Trim(input.Path, "/"), map[string]any{"reason": "secret_write_failed"})
+		}
 		s.storeError(w, r, err)
 		return
 	}
+	s.queueWebhook(r, eventType, secret.Path, map[string]any{"secret_id": secret.ID, "version": secret.Version})
 	writeData(w, directStatus, secret)
 }
 
@@ -262,6 +286,7 @@ func (s *Server) deleteSecret(w http.ResponseWriter, r *http.Request) {
 			s.storeError(w, r, err)
 			return
 		}
+		s.queueWebhook(r, "approval.requested", approval.Resource, map[string]any{"action": approval.Action, "approval_id": approval.ID})
 		writeData(w, http.StatusAccepted, approval)
 		return
 	}
@@ -269,6 +294,7 @@ func (s *Server) deleteSecret(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
+	s.queueWebhook(r, "secret.deleted", path, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

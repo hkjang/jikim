@@ -1,4 +1,4 @@
-export const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'v0.1.0';
+export const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'v0.2.0';
 
 export function formatDate(value?: string) {
   if (!value) return '—';
@@ -9,6 +9,13 @@ export function formatDate(value?: string) {
 
 export function formatNumber(value?: number) {
   return new Intl.NumberFormat('ko-KR').format(value ?? 0);
+}
+
+export function authSourceLabel(value?: string) {
+  const normalized = (value || '').trim().toLowerCase();
+  if (normalized === 'oidc' || normalized === 'keycloak') return 'Keycloak OIDC';
+  if (normalized === 'local') return '로컬';
+  return value?.trim() || '확인 필요';
 }
 
 export function riskColor(score = 0) {

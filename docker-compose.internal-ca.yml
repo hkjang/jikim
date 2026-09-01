@@ -1,0 +1,7 @@
+services:
+  jikim:
+    volumes:
+      - type: bind
+        source: ./certs/internal-ca.crt
+        target: /app/certs/internal-ca.crt
+        read_only: true

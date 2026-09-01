@@ -7,7 +7,7 @@ OUTPUT_DIR := dist
 COMMIT := $(shell git rev-parse HEAD 2>/dev/null || printf unknown)
 BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-.PHONY: help version web build test verify docs-check docker smoke package verify-bundle release-check compose-check
+.PHONY: help version web build test verify docs-check docker smoke e2e package verify-bundle release-check compose-check
 
 help: ## 사용 가능한 명령을 표시합니다.
 	@awk 'BEGIN {FS = ":.*## "; printf "jikim 빌드 명령\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -52,10 +52,13 @@ docker: ## $(IMAGE) 이미지를 로컬에서 빌드합니다.
 smoke: ## 외부 통신이 차단된 Docker 네트워크에서 스모크 테스트합니다.
 	./scripts/smoke-offline.sh "$(IMAGE)"
 
+e2e: ## 실제 Docker 이미지의 모든 화면과 새로 고침 동작을 브라우저로 검증합니다.
+	./scripts/e2e-docker.sh "$(IMAGE)"
+
 package: ## 오프라인 이미지 번들과 SHA-256 체크섬을 생성합니다.
 	./scripts/package-offline.sh "$(OUTPUT_DIR)"
 
 verify-bundle: ## 생성된 오프라인 번들의 무결성과 이미지 태그를 검증합니다.
 	./scripts/verify-offline-bundle.sh "$(OUTPUT_DIR)/jikim-$(VERSION).tar.gz"
 
-release-check: verify docker smoke package verify-bundle ## 실제 릴리스 전 전체 검증을 수행합니다.
+release-check: verify docker smoke e2e package verify-bundle ## 실제 릴리스 전 전체 검증을 수행합니다.

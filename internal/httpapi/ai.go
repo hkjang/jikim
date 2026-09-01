@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hkjang/jikim/internal/model"
+	"github.com/hkjang/jikim/internal/store"
 )
 
 const maximumAITokens = 262144
@@ -102,6 +103,10 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusServiceUnavailable, "ai_disabled", "AI 기능이 설정되지 않았습니다")
 		return
 	}
+	if err := validateAIRuntimeConfig(cfg); err != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "invalid_ai_config", "저장된 AI API 설정이 보안 정책에 맞지 않습니다")
+		return
+	}
 	maxTokens := input.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = cfg.MaxTokens
@@ -113,7 +118,16 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		maxTokens = maximumAITokens
 	}
 	session, _ := sessionFrom(r)
-	dashboard, err := s.store.Dashboard(r.Context())
+	if s.aiLimiter != nil {
+		allowed, reason := s.aiLimiter.acquire(session.User.ID)
+		if !allowed {
+			w.Header().Set("Retry-After", "60")
+			writeError(w, r, http.StatusTooManyRequests, "ai_rate_limited", reason)
+			return
+		}
+		defer s.aiLimiter.release(session.User.ID)
+	}
+	dashboard, err := s.roleScopedDashboard(r.Context(), session)
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -155,9 +169,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
-	if cfg.APIKey != "" {
-		request.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	}
+	applyAIAuthentication(request, cfg)
 	response, err := s.aiClient.Do(request)
 	if err != nil {
 		writeError(w, r, http.StatusBadGateway, "ai_upstream_error", "AI API에 연결할 수 없습니다")
@@ -203,6 +215,83 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) aiIntegrationTest(w http.ResponseWriter, r *http.Request) {
+	if r.ContentLength != 0 {
+		var ignored map[string]any
+		if !decodeJSON(w, r, &ignored) {
+			return
+		}
+	}
+	cfg, err := s.store.AIConfig(r.Context())
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	if strings.TrimSpace(cfg.BaseURL) == "" || strings.TrimSpace(cfg.Model) == "" {
+		writeError(w, r, http.StatusBadRequest, "ai_not_configured", "AI Base URL과 모델을 먼저 저장하세요")
+		return
+	}
+	if err := validateAIRuntimeConfig(cfg); err != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "invalid_ai_config", "저장된 AI API 설정이 보안 정책에 맞지 않습니다")
+		return
+	}
+	endpoint, err := chatCompletionsURL(cfg.BaseURL)
+	if err != nil {
+		writeError(w, r, http.StatusBadRequest, "invalid_ai_config", "AI API URL 설정이 올바르지 않습니다")
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"model": cfg.Model, "stream": true, "max_tokens": 1, "temperature": 0,
+		"messages": []map[string]string{{"role": "user", "content": "연결 상태를 한 단어로 답하세요."}},
+	})
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "text/event-stream")
+	applyAIAuthentication(request, cfg)
+	started := time.Now()
+	response, err := s.aiClient.Do(request)
+	if err != nil {
+		writeError(w, r, http.StatusBadGateway, "ai_upstream_error", "AI API에 연결할 수 없습니다")
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		writeError(w, r, http.StatusBadGateway, "ai_upstream_error", "AI API가 연결 테스트를 거부했습니다")
+		return
+	}
+	if !strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
+		writeError(w, r, http.StatusBadGateway, "ai_invalid_stream", "AI API가 SSE 스트림을 반환하지 않았습니다")
+		return
+	}
+	scanner := bufio.NewScanner(io.LimitReader(response.Body, 1<<20))
+	sawData := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "data:") {
+			sawData = true
+			break
+		}
+	}
+	if !sawData {
+		writeError(w, r, http.StatusBadGateway, "ai_invalid_stream", "AI API SSE 응답에 data event가 없습니다")
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{"ok": true,
+		"latency_ms": time.Since(started).Milliseconds(), "profile": "openai-chat-completions-sse",
+		"endpoint": redactedEndpoint(endpoint), "max_tokens_supported": maximumAITokens})
+}
+
 func serverAIContext(role string, dashboard model.Dashboard) aiContext {
 	return aiContext{
 		RequesterRole: role,
@@ -228,7 +317,41 @@ func chatCompletionsURL(base string) (string, error) {
 	} else {
 		parsed.Path = path + "/v1/chat/completions"
 	}
-	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return parsed.String(), nil
+}
+
+func redactedEndpoint(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	parsed.User = nil
+	return parsed.String()
+}
+
+func applyAIAuthentication(request *http.Request, cfg store.AIConfig) {
+	if cfg.APIKey == "" || cfg.AuthType == "none" {
+		return
+	}
+	if cfg.AuthType == "api-key" {
+		request.Header.Set("api-key", cfg.APIKey)
+		return
+	}
+	request.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+}
+
+func validateAIRuntimeConfig(cfg store.AIConfig) error {
+	return store.ValidateSetting("ai", map[string]any{
+		"enabled":             cfg.Enabled,
+		"base_url":            cfg.BaseURL,
+		"model":               cfg.Model,
+		"max_tokens":          cfg.MaxTokens,
+		"temperature":         cfg.Temperature,
+		"timeout_seconds":     cfg.TimeoutSeconds,
+		"auth_type":           cfg.AuthType,
+		"allow_insecure_http": cfg.AllowInsecureHTTP,
+	})
 }

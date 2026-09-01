@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, get } from './api';
+import { ApiError, get, simulatePolicy, testAIIntegration, testWebhookIntegration } from './api';
 
 describe('API 클라이언트', () => {
   afterEach(() => { vi.restoreAllMocks(); });
@@ -21,5 +21,22 @@ describe('API 클라이언트', () => {
   it('일회성 토큰이 포함된 응답 envelope를 보존한다', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: { id: 'token-id' }, token: 'hvs.once' }), { status: 201, headers: { 'content-type': 'application/json' } }));
     await expect(get<{ data: { id: string }; token: string }>('/tokens')).resolves.toEqual({ data: { id: 'token-id' }, token: 'hvs.once' });
+  });
+
+  it('정책 시뮬레이션은 서버 최종 판정 API에 요청한다', async () => {
+    const mocked = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: { allowed: true, matches: [] } }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    await simulatePolicy({ user_id: 'user-1', path: 'production/payment/database', capability: 'read' });
+    expect(mocked.mock.calls[0][0]).toBe('/api/v1/policies/simulate');
+    expect(mocked.mock.calls[0][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ user_id: 'user-1', path: 'production/payment/database', capability: 'read' }) });
+  });
+
+  it('연동 테스트는 저장된 AI와 webhook 설정을 빈 객체로 검사한다', async () => {
+    const mocked = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ data: { ok: true } }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    await testAIIntegration();
+    await testWebhookIntegration();
+    expect(mocked.mock.calls.map(([url, options]) => [url, options?.method, options?.body])).toEqual([
+      ['/api/v1/integrations/ai/test', 'POST', '{}'],
+      ['/api/v1/integrations/webhook/test', 'POST', '{}'],
+    ]);
   });
 });

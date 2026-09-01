@@ -23,7 +23,12 @@ type Server struct {
 	aiClient          *http.Client
 	static            http.Handler
 	loginLimiter      *loginRateLimiter
+	aiLimiter         *aiRequestLimiter
+	webhookSlots      chan struct{}
 	transitAuthorizer func(context.Context, model.User, string, string) (bool, error)
+	secretAuthorizer  func(context.Context, model.User, string, string) (bool, error)
+	transitDecryptor  func(context.Context, string, string) (string, error)
+	auditRecorder     func(context.Context, model.AuditEvent) error
 }
 
 func New(st *store.Store, logger *slog.Logger) http.Handler {
@@ -31,16 +36,13 @@ func New(st *store.Store, logger *slog.Logger) http.Handler {
 		logger = slog.Default()
 	}
 	s := &Server{
-		store:  st,
-		logger: logger,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
-		aiClient:     &http.Client{},
+		store:        st,
+		logger:       logger,
+		httpClient:   newOutboundHTTPClient(logger, 30*time.Second),
+		aiClient:     newOutboundHTTPClient(logger, 0),
 		loginLimiter: newLoginRateLimiter(),
+		aiLimiter:    newAIRequestLimiter(),
+		webhookSlots: make(chan struct{}, 16),
 	}
 	s.static = discoverStaticHandler(logger)
 	mux := http.NewServeMux()
@@ -52,6 +54,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /api/v1/version", s.version)
+	mux.HandleFunc("GET /api/v1/capabilities", s.capabilities)
+	mux.HandleFunc("GET /api/openapi.json", s.openAPI)
 	mux.HandleFunc("GET /api/v1/settings/public", s.publicSettings)
 	mux.HandleFunc("GET /api/v1/session", s.sessionStatus)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
@@ -59,6 +63,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/oidc/login", s.oidcLogin)
 	mux.HandleFunc("GET /api/v1/oidc/callback", s.oidcCallback)
 	mux.HandleFunc("POST /api/v1/oidc/exchange", s.oidcExchange)
+	mux.Handle("GET /api/v1/oidc/logout", s.withAuth(http.HandlerFunc(s.oidcLogout)))
 	mux.Handle("POST /api/v1/oidc/test", s.requireRoles(http.HandlerFunc(s.oidcTest), "admin"))
 
 	mux.Handle("GET /api/v1/me", s.withAuth(http.HandlerFunc(s.me)))
@@ -98,6 +103,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/policies/{id}", s.requireRoles(http.HandlerFunc(s.deletePolicy), "admin", "manager"))
 	mux.Handle("GET /api/v1/policies/{id}/users", s.requireRoles(http.HandlerFunc(s.getPolicyUsers), "admin", "manager", "auditor"))
 	mux.Handle("PUT /api/v1/policies/{id}/users", s.requireRoles(http.HandlerFunc(s.setPolicyUsers), "admin", "manager"))
+	mux.Handle("POST /api/v1/policies/simulate", s.requireRoles(http.HandlerFunc(s.simulatePolicy), "admin", "manager", "auditor"))
 
 	mux.Handle("GET /api/v1/keys", s.withAuth(http.HandlerFunc(s.listKeys)))
 	mux.Handle("POST /api/v1/keys", s.requireRoles(http.HandlerFunc(s.createKey), "admin", "manager"))
@@ -115,8 +121,13 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/settings", s.requireRoles(http.HandlerFunc(s.settings), "admin"))
 	mux.Handle("PATCH /api/v1/settings", s.requireRoles(http.HandlerFunc(s.updateSettings), "admin"))
 	mux.Handle("POST /api/v1/ai/chat", s.withAuth(http.HandlerFunc(s.aiChat)))
+	mux.Handle("POST /api/v1/integrations/ai/test", s.requireRoles(http.HandlerFunc(s.aiIntegrationTest), "admin"))
+	mux.Handle("POST /api/v1/integrations/webhook/test", s.requireRoles(http.HandlerFunc(s.webhookTest), "admin"))
+	mux.Handle("GET /api/v1/integrations/webhook/deliveries", s.requireRoles(http.HandlerFunc(s.listWebhookDeliveries), "admin", "auditor"))
+	mux.Handle("POST /api/v1/integrations/webhook/deliveries/{id}/retry", s.requireRoles(http.HandlerFunc(s.retryWebhookDelivery), "admin"))
 
-	mux.Handle("POST /mcp", s.withAuth(http.HandlerFunc(s.mcp)))
+	mux.HandleFunc("GET /mcp", s.mcpGET)
+	mux.Handle("POST /mcp", mcpOriginGuard(s.withAuth(http.HandlerFunc(s.mcp))))
 	s.openBaoRoutes(mux)
 	mux.HandleFunc("/", s.serveFrontend)
 }

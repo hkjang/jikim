@@ -15,9 +15,9 @@
   </g>
   <text x="305" y="224" fill="#F5FCFC" font-family="Inter, Pretendard, Arial, sans-serif" font-size="92" font-weight="760" letter-spacing="-4">jikim</text>
   <text x="100" y="388" fill="#F5FCFC" font-family="Pretendard, Arial, sans-serif" font-size="49" font-weight="700" letter-spacing="-1.5">비밀은 보이지 않게, 운영은 선명하게.</text>
-  <text x="102" y="455" fill="#A9C3C6" font-family="Pretendard, Arial, sans-serif" font-size="27">OpenBao 2.6.1 API 제한 호환 프리뷰 · 상세 범위 공개</text>
+  <text x="102" y="455" fill="#A9C3C6" font-family="Pretendard, Arial, sans-serif" font-size="27">OpenAPI 3.1 · MCP · 서명 Webhook · 폐쇄망 배포</text>
   <g transform="translate(100 515)" font-family="Inter, Pretendard, Arial, sans-serif" font-size="20" font-weight="650">
-    <rect width="160" height="48" rx="24" fill="#14363A"/><text x="25" y="31" fill="#6DE7DA">OFFLINE READY</text>
-    <rect x="176" width="148" height="48" rx="24" fill="#142D4D"/><text x="202" y="31" fill="#79A8FF">v0.1.0</text>
+    <rect width="178" height="48" rx="24" fill="#14363A"/><text x="18" y="31" fill="#6DE7DA">OFFLINE READY</text>
+    <rect x="194" width="148" height="48" rx="24" fill="#142D4D"/><text x="220" y="31" fill="#79A8FF">v0.2.0</text>
   </g>
 </svg>

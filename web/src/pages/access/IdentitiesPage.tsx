@@ -27,13 +27,12 @@ import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { CircleAlert, Pencil, Plus, RefreshCw, Save, Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import { get, patch, post } from '../../lib/api';
-import { formatDate } from '../../lib/format';
+import { authSourceLabel, formatDate } from '../../lib/format';
 import type { User } from '../../lib/types';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface IdentityRecord extends User {
   active: boolean;
-  auth_source?: string;
   personal_key_version?: number;
 }
 
@@ -260,7 +259,7 @@ export function IdentitiesPage({ adminMode = false }: { adminMode?: boolean }) {
                       <UserStatus active={user.active} />
                     </Group>
                     <Group gap="xs"><Badge color={user.role === 'admin' ? 'violet' : 'blue'}>{roleLabel(user.role)}</Badge><Badge variant="outline">키 v{user.personal_key_version ?? 1}</Badge></Group>
-                    <Text size="sm" c="dimmed">인증: {user.auth_source === 'oidc' ? 'Keycloak OIDC' : '로컬'} · 최근 로그인 {formatDate(user.last_login_at)}</Text>
+                    <Text size="sm" c="dimmed">인증: {authSourceLabel(user.auth_source)} · 최근 로그인 {formatDate(user.last_login_at)}</Text>
                     {isAdmin && <Button variant="default" leftSection={<Pencil size={16} />} onClick={() => openEdit(user)}>사용자 편집</Button>}
                   </Stack>
                 </Card>
@@ -276,7 +275,7 @@ export function IdentitiesPage({ adminMode = false }: { adminMode?: boolean }) {
                       <Table.Tr key={user.id}>
                         <Table.Td><Text fw={700}>{user.display_name || user.username}</Text><Text size="sm" c="dimmed">@{user.username} · {user.email || '—'}</Text></Table.Td>
                         <Table.Td><Badge color={user.role === 'admin' ? 'violet' : 'blue'}>{roleLabel(user.role)}</Badge></Table.Td>
-                        <Table.Td>{user.auth_source === 'oidc' ? 'Keycloak OIDC' : '로컬'}</Table.Td>
+                        <Table.Td>{authSourceLabel(user.auth_source)}</Table.Td>
                         <Table.Td>v{user.personal_key_version ?? 1}</Table.Td>
                         <Table.Td>{formatDate(user.last_login_at)}</Table.Td>
                         <Table.Td><UserStatus active={user.active} /></Table.Td>

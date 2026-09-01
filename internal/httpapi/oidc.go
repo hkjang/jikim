@@ -64,6 +64,7 @@ func (s *Server) oidcTest(w http.ResponseWriter, r *http.Request) {
 			RoleClaim              string   `json:"role_claim,omitempty"`
 			RedirectURL            string   `json:"redirect_url,omitempty"`
 			ClientSecretConfigured bool     `json:"client_secret_configured,omitempty"`
+			AllowInsecureHTTP      bool     `json:"allow_insecure_http,omitempty"`
 		}
 		if !decodeJSON(w, r, &input) {
 			return
@@ -74,11 +75,28 @@ func (s *Server) oidcTest(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(input.ClientID) != "" {
 			cfg.ClientID = strings.TrimSpace(input.ClientID)
 		}
+		if len(input.Scopes) > 0 {
+			cfg.Scopes = append([]string(nil), input.Scopes...)
+		}
+		if strings.TrimSpace(input.RedirectURL) != "" {
+			cfg.RedirectURL = strings.TrimSpace(input.RedirectURL)
+		}
+		cfg.AllowInsecureHTTP = input.AllowInsecureHTTP
 		// The secret is deliberately accepted only to validate form shape; discovery does not transmit it.
 		_ = input.ClientSecret
 	}
 	if cfg.IssuerURL == "" || cfg.ClientID == "" {
 		writeError(w, r, http.StatusBadRequest, "invalid_oidc_config", "Issuer URL과 Client ID가 필요합니다")
+		return
+	}
+	scopes := make([]any, 0, len(cfg.Scopes))
+	for _, scope := range cfg.Scopes {
+		scopes = append(scopes, scope)
+	}
+	if err := store.ValidateSetting("oidc", map[string]any{"enabled": true, "issuer_url": cfg.IssuerURL,
+		"client_id": cfg.ClientID, "redirect_url": cfg.RedirectURL, "allow_insecure_http": cfg.AllowInsecureHTTP,
+		"scopes": scopes}); err != nil {
+		s.storeError(w, r, err)
 		return
 	}
 	provider, err := s.oidcProvider(r.Context(), cfg.IssuerURL)
@@ -98,6 +116,10 @@ func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.store.OIDCConfig(r.Context())
 	if err != nil || !cfg.Enabled || cfg.IssuerURL == "" || cfg.ClientID == "" {
 		writeError(w, r, http.StatusServiceUnavailable, "oidc_disabled", "OIDC 로그인이 설정되지 않았습니다")
+		return
+	}
+	if err := validateOIDCRuntimeConfig(cfg); err != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "invalid_oidc_config", "저장된 OIDC 설정이 보안 정책에 맞지 않습니다")
 		return
 	}
 	frontendRedirect := r.URL.Query().Get("redirect_uri")
@@ -129,9 +151,10 @@ func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	backendRedirect := cfg.RedirectURL
-	if backendRedirect == "" {
-		backendRedirect = requestOrigin(r) + "/api/v1/oidc/callback"
+	backendRedirect, ok := validOIDCBackendRedirect(cfg.RedirectURL)
+	if !ok {
+		writeError(w, r, http.StatusServiceUnavailable, "invalid_oidc_config", "OIDC callback Redirect URL이 설정되지 않았거나 올바르지 않습니다")
+		return
 	}
 	stateValue := oidcState{State: state, Nonce: nonce, Verifier: verifier,
 		FrontendRedirect: frontendRedirect, BackendRedirect: backendRedirect, IssuedAt: time.Now().UTC()}
@@ -154,7 +177,7 @@ func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	if providerError := r.URL.Query().Get("error"); providerError != "" {
-		writeError(w, r, http.StatusUnauthorized, "oidc_provider_error", "OIDC 공급자가 로그인을 거부했습니다")
+		redirectOIDCCallbackError(w, r, "oidc_provider_error", "OIDC 공급자가 로그인을 완료하지 않았습니다")
 		return
 	}
 	cookie, err := r.Cookie("jikim_oidc_state")
@@ -174,6 +197,10 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.store.OIDCConfig(r.Context())
 	if err != nil || !cfg.Enabled {
 		writeError(w, r, http.StatusServiceUnavailable, "oidc_disabled", "OIDC 로그인이 비활성화되었습니다")
+		return
+	}
+	if err := validateOIDCRuntimeConfig(cfg); err != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "invalid_oidc_config", "저장된 OIDC 설정이 보안 정책에 맞지 않습니다")
 		return
 	}
 	provider, err := s.oidcProvider(r.Context(), cfg.IssuerURL)
@@ -235,13 +262,55 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "jikim_oidc_state", Value: "", Path: "/api/v1/oidc/",
-		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	clearOIDCStateCookie(w, r)
 	target, _ := url.Parse(state.FrontendRedirect)
 	query := target.Query()
 	query.Set("code", loginCode)
 	target.RawQuery = query.Encode()
 	http.Redirect(w, r, target.String(), http.StatusFound)
+}
+
+// oidcLogout terminates the local session before sending OIDC users to the
+// provider's RP-initiated logout endpoint. A provider outage must never keep a
+// local jikim session alive.
+func (s *Server) oidcLogout(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFrom(r)
+	token, _ := r.Context().Value(tokenKey).(string)
+	if token != "" {
+		_ = s.store.RevokeToken(r.Context(), token)
+	}
+	clearSessionCookie(w, r)
+	w.Header().Set("Cache-Control", "no-store")
+
+	if session.User.AuthSource != "oidc" {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	cfg, err := s.store.OIDCConfig(r.Context())
+	if err != nil || strings.TrimSpace(cfg.IssuerURL) == "" {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	if err := validateOIDCRuntimeConfig(cfg); err != nil {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	provider, err := s.oidcProvider(r.Context(), cfg.IssuerURL)
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	var discovery oidcDiscovery
+	if err := provider.Claims(&discovery); err != nil {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	target, err := oidcLogoutURL(discovery.EndSessionEndpoint, cfg.ClientID, cfg.RedirectURL)
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func (s *Server) oidcExchange(w http.ResponseWriter, r *http.Request) {
@@ -297,6 +366,21 @@ func oidcScopes(configured []string) []string {
 	return result
 }
 
+func validateOIDCRuntimeConfig(cfg store.OIDCConfig) error {
+	scopes := make([]any, 0, len(oidcScopes(cfg.Scopes)))
+	for _, scope := range oidcScopes(cfg.Scopes) {
+		scopes = append(scopes, scope)
+	}
+	return store.ValidateSetting("oidc", map[string]any{
+		"enabled":             cfg.Enabled,
+		"issuer_url":          cfg.IssuerURL,
+		"client_id":           cfg.ClientID,
+		"redirect_url":        cfg.RedirectURL,
+		"scopes":              scopes,
+		"allow_insecure_http": cfg.AllowInsecureHTTP,
+	})
+}
+
 func safeFrontendRedirect(value string) bool {
 	u, err := url.Parse(value)
 	return err == nil && !u.IsAbs() && u.Host == "" && u.Path == "/oidc/callback"
@@ -304,25 +388,75 @@ func safeFrontendRedirect(value string) bool {
 
 func normalizeFrontendRedirect(r *http.Request, value string) (string, bool) {
 	if safeFrontendRedirect(value) {
-		return value, true
+		return "/oidc/callback", true
 	}
 	target, err := url.Parse(value)
-	if err != nil || !target.IsAbs() || target.Path != "/oidc/callback" || target.User != nil {
+	if err != nil || !target.IsAbs() || target.Host == "" || target.Path != "/oidc/callback" || target.User != nil ||
+		(target.Scheme != "http" && target.Scheme != "https") {
 		return "", false
 	}
-	origin, err := url.Parse(requestOrigin(r))
-	if err != nil || !strings.EqualFold(target.Scheme, origin.Scheme) || !strings.EqualFold(target.Host, origin.Host) {
+	expectedScheme := "http"
+	if requestIsHTTPS(r) {
+		expectedScheme = "https"
+	}
+	if !strings.EqualFold(target.Scheme, expectedScheme) || !strings.EqualFold(target.Host, r.Host) {
+		return "", false
+	}
+	// The browser-facing exchange code is always returned to a relative SPA
+	// route. The untrusted Host header and caller-supplied absolute origin are
+	// never retained in OIDC state.
+	return "/oidc/callback", true
+}
+
+func validOIDCBackendRedirect(value string) (string, bool) {
+	target, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || !target.IsAbs() || target.Host == "" || target.User != nil ||
+		(target.Scheme != "http" && target.Scheme != "https") || target.Path != "/api/v1/oidc/callback" ||
+		target.RawQuery != "" || target.Fragment != "" {
 		return "", false
 	}
 	return target.String(), true
 }
 
-func requestOrigin(r *http.Request) string {
-	scheme := "http"
-	if requestIsHTTPS(r) {
-		scheme = "https"
+func redirectOIDCCallbackError(w http.ResponseWriter, r *http.Request, code, description string) {
+	clearOIDCStateCookie(w, r)
+	target := &url.URL{Path: "/oidc/callback"}
+	query := target.Query()
+	query.Set("error", code)
+	query.Set("error_description", description)
+	target.RawQuery = query.Encode()
+	http.Redirect(w, r, target.String(), http.StatusFound)
+}
+
+func clearOIDCStateCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: "jikim_oidc_state", Value: "", Path: "/api/v1/oidc/",
+		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(0, 0)})
+}
+
+func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: "jikim_session", Value: "", Path: "/", HttpOnly: true,
+		Secure: requestIsHTTPS(r), SameSite: http.SameSiteStrictMode, MaxAge: -1, Expires: time.Unix(0, 0)})
+}
+
+func oidcLogoutURL(endpoint, clientID, configuredCallback string) (string, error) {
+	target, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || target.Host == "" || target.User != nil || (target.Scheme != "http" && target.Scheme != "https") {
+		return "", errors.New("invalid end session endpoint")
 	}
-	return scheme + "://" + r.Host
+	query := target.Query()
+	if clientID = strings.TrimSpace(clientID); clientID != "" {
+		query.Set("client_id", clientID)
+	}
+	// A post-logout redirect is emitted only from an administrator-configured
+	// absolute callback. It is never constructed from the request Host header.
+	if configured, ok := validOIDCBackendRedirect(configuredCallback); ok {
+		callback, _ := url.Parse(configured)
+		login := &url.URL{Scheme: callback.Scheme, Host: callback.Host, Path: "/login"}
+		query.Set("post_logout_redirect_uri", login.String())
+	}
+	target.RawQuery = query.Encode()
+	target.Fragment = ""
+	return target.String(), nil
 }
 
 func firstString(claims map[string]any, keys ...string) string {
@@ -351,14 +485,20 @@ func claimString(claims map[string]any, claimName string) string {
 }
 
 func oidcRole(claims map[string]any, claimName string) string {
+	roles := oidcMappedRoles(claims, claimName)
+	return leastPrivilegeOIDCRole(roles)
+}
+
+func oidcMappedRoles(claims map[string]any, claimName string) map[string]bool {
+	mapped := make(map[string]bool)
 	if claimName == "" {
-		return ""
+		return mapped
 	}
 	var value any = claims
 	for _, part := range strings.Split(claimName, ".") {
 		object, ok := value.(map[string]any)
 		if !ok {
-			return ""
+			return mapped
 		}
 		value = object[part]
 	}
@@ -374,20 +514,31 @@ func oidcRole(claims map[string]any, claimName string) string {
 		}
 	}
 	for _, role := range roles {
-		normalized := strings.Trim(strings.ToLower(strings.TrimSpace(role)), "/")
-		if slash := strings.LastIndex(normalized, "/"); slash >= 0 {
-			normalized = normalized[slash+1:]
+		switch role {
+		case "jikim-admin":
+			mapped["admin"] = true
+		case "jikim-manager":
+			mapped["manager"] = true
+		case "jikim-auditor":
+			mapped["auditor"] = true
+		case "jikim-user":
+			mapped["user"] = true
 		}
-		switch normalized {
-		case "admin", "jikim-admin":
-			return "admin"
-		case "manager", "jikim-manager":
-			return "manager"
-		case "auditor", "jikim-auditor":
-			return "auditor"
-		case "user", "jikim-user":
-			return "user"
-		}
+	}
+	return mapped
+}
+
+func leastPrivilegeOIDCRole(roles map[string]bool) string {
+	if len(roles) == 0 {
+		return ""
+	}
+	// Multiple recognized mappings are ambiguous. Resolve them to the least
+	// privileged local role instead of depending on claim array order.
+	if len(roles) > 1 {
+		return "user"
+	}
+	for role := range roles {
+		return role
 	}
 	return ""
 }
@@ -406,14 +557,18 @@ func synchronizedOIDCRole(claims map[string]any, claimName string) (string, bool
 
 func synchronizedOIDCRoleClaims(claims map[string]any, roleClaim, groupClaim string) (string, bool) {
 	configured := false
+	mapped := make(map[string]bool)
 	for _, claimName := range []string{roleClaim, groupClaim} {
 		if strings.TrimSpace(claimName) == "" {
 			continue
 		}
 		configured = true
-		if role := oidcRole(claims, claimName); role != "" {
-			return role, true
+		for role := range oidcMappedRoles(claims, claimName) {
+			mapped[role] = true
 		}
+	}
+	if role := leastPrivilegeOIDCRole(mapped); role != "" {
+		return role, true
 	}
 	if configured {
 		// Removed or unrecognized IdP mappings must not leave stale privileges.

@@ -6,15 +6,17 @@ import (
 )
 
 type User struct {
-	ID                 string    `json:"id"`
-	Username           string    `json:"username"`
-	DisplayName        string    `json:"display_name"`
-	Email              string    `json:"email,omitempty"`
-	Role               string    `json:"role"`
-	Active             bool      `json:"active"`
-	PersonalKeyVersion int       `json:"personal_key_version"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	ID                 string     `json:"id"`
+	Username           string     `json:"username"`
+	DisplayName        string     `json:"display_name"`
+	Email              string     `json:"email,omitempty"`
+	Role               string     `json:"role"`
+	Active             bool       `json:"active"`
+	AuthSource         string     `json:"auth_source"`
+	PersonalKeyVersion int        `json:"personal_key_version"`
+	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 type Session struct {
@@ -139,6 +141,9 @@ type Dashboard struct {
 	Keys             int64        `json:"keys"`
 	PendingApprovals int64        `json:"pending_approvals"`
 	HighRiskSecrets  int64        `json:"high_risk_secrets"`
+	HealthySecrets   int64        `json:"healthy_secrets"`
+	AttentionSecrets int64        `json:"attention_secrets"`
+	SecurityScore    int          `json:"security_score"`
 	RecentAudit      []AuditEvent `json:"recent_audit"`
 }
 

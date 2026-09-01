@@ -4,23 +4,24 @@
 
 jikim은 Secret 값만 보관하는 도구를 넘어 애플리케이션, 소유자, 개인 키, 정책, 승인과 감사 흐름을 한곳에서 다루기 위한 Go + React 서비스입니다. 관리 화면은 한국어를 기본으로 하며 PostgreSQL에 저장되는 민감 데이터는 애플리케이션 계층에서 암호화합니다.
 
-> 현재 버전은 `v0.1.0`입니다. OpenBao 전체 또는 99.9% 호환을 주장하지 않습니다. `/v1/*`는 구현된 핸들러와 제약을 공개하는 **제한 프리뷰**이며, OpenBao 2.6.1과의 differential 호환성 suite는 아직 구현되지 않았습니다. 정확한 상한은 [호환성 프로파일](docs/guides/compatibility.md)을 확인하십시오.
+> 현재 버전은 `v0.2.0`입니다. OpenBao 전체 또는 99.9% 호환을 주장하지 않습니다. `/v1/*`는 구현된 핸들러와 제약을 공개하는 **제한 프리뷰**이며, OpenBao 2.6.1과의 differential 호환성 suite는 아직 구현되지 않았습니다. 정확한 상한은 [호환성 프로파일](docs/guides/compatibility.md)을 확인하십시오.
 
-## v0.1.0 기능 프로파일
+## v0.2.0 기능 프로파일
 
 | 영역 | 상태 | 범위 |
 | --- | --- | --- |
 | 한국어 React 관리 화면 | 구현 | 로그인, 대시보드, Secret, 애플리케이션, 정책, 개인 키, 승인, 감사, 설정, AI, API 탐색기 |
 | 로컬 인증·역할 | 구현 | `admin`, `manager`, `user`, `auditor`, 세션과 토큰 |
-| Keycloak OIDC | 구현 프로파일 | Issuer Discovery, Client ID/Secret, claim 설정, Discovery-only 확인과 callback |
+| Keycloak OIDC | 구현 프로파일 | Discovery, 고정 callback, PKCE·nonce, exact `jikim-*` 역할, RP logout와 연결 확인 |
 | Secret 저장 | 구현 | 애플리케이션 중심 metadata, AES-256-GCM 암호화, 버전 관리, 정책 평가 |
 | 개인 키 | 구현 | 사용자별 키 버전, 회전, 변경 가능한 작업 권한 |
 | 승인 워크플로 | 구현 | 관리자 활성화 시 Secret 생성·변경·삭제 요청을 승인/반려; 기본 비활성 |
 | 감사 | 구현 | 요청 ID, 사용자, 작업, 리소스, 상태, IP 중심 기록과 검색 |
-| AI | 구현 프로파일 | 관리자 설정, OpenAI-compatible Chat Completions SSE 중계, Secret 평문 패턴 차단, `max_tokens` 최대 262,144 고려 |
-| MCP | 구현 프로파일 | JSON-RPC 2.0 `POST /mcp`, metadata·정책·감사·Transit 도구 |
-| OpenBao API | 제한 프리뷰 | Health, Userpass, Token 일부, KV v2 일부, Transit encrypt/decrypt 일부; differential suite 미구현 |
-| 오프라인 Docker | 구현 | `jikim:v0.1.0`, `jikim-v0.1.0.tar.gz`, SHA-256, egress 차단 스모크 테스트 |
+| AI | 구현 프로파일 | OpenAI Chat Completions SSE, 실연결 확인, Bearer/API-Key/무인증, 요청 제한, `max_tokens` 최대 262,144 |
+| Webhook | 구현 | HMAC-SHA256 서명 전송, 이벤트 필터, 연결 확인, 이력과 수동 재시도 |
+| MCP | 구현 프로파일 | Streamable HTTP stateless, 2025-11-25/2025-06-18, 권한 확인·metadata·정책·감사·Transit 도구 |
+| OpenBao API | 제한 프리뷰 | Health, Userpass, Token 일부, KV v2 CAS·버전 삭제/복구/폐기·metadata, Transit 일부; 전체 differential suite 미구현 |
+| 오프라인 Docker | 구현 | `jikim:v0.2.0`, `jikim-v0.2.0.tar.gz`, SHA-256, egress 차단 스모크와 전체 화면 E2E |
 | PKI·동적 DB 자격증명·Lease·Raft HA | 미지원/화면 프리뷰 | 후속 구현 대상이며 운영 지원으로 표시하지 않음 |
 
 일부 메뉴는 전체 제품 방향을 보여주는 프리뷰 화면입니다. 화면이 존재한다는 이유만으로 해당 엔진이나 `/v1/*` API가 구현되었다고 판단하지 마십시오.
@@ -75,6 +76,12 @@ export ENCRYPTION_KEY='REDACTED-64-HEX-CHARS'
 docker compose up --detach
 ```
 
+사내 CA로 Keycloak·AI·Webhook TLS를 검증할 때는 인증서를 `certs/internal-ca.crt`에 두고 추가 환경변수 없이 다음 override를 함께 사용합니다.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.internal-ca.yml up --detach
+```
+
 상태 확인:
 
 ```bash
@@ -90,14 +97,14 @@ curl --fail http://127.0.0.1:8080/v1/sys/health
 GitHub Release 산출물:
 
 ```text
-jikim-v0.1.0.tar.gz
-jikim-v0.1.0.tar.gz.sha256
+jikim-v0.2.0.tar.gz
+jikim-v0.2.0.tar.gz.sha256
 ```
 
 ```bash
-sha256sum --check jikim-v0.1.0.tar.gz.sha256
-docker load --input jikim-v0.1.0.tar.gz
-docker image inspect jikim:v0.1.0
+sha256sum --check jikim-v0.2.0.tar.gz.sha256
+docker load --input jikim-v0.2.0.tar.gz
+docker image inspect jikim:v0.2.0
 ```
 
 상세 절차와 TLS·백업·롤백 경계는 [오프라인 설치 가이드](docs/guides/offline-install.md)를 참조하십시오.
@@ -111,6 +118,7 @@ docker image inspect jikim:v0.1.0
 ./scripts/verify.sh --docker     # 이미지 빌드 포함
 docker pull postgres:17-alpine  # 스모크 테스트용 이미지를 연결망에서 미리 준비
 ./scripts/verify.sh --smoke      # 내부 Docker 네트워크 + egress 차단 검증
+make e2e                        # 실제 이미지의 모든 화면·새로 고침 브라우저 검증
 ```
 
 실제 릴리스 전 로컬 계약:
@@ -127,13 +135,15 @@ make package
 make verify-bundle
 ```
 
-태그 `v0.1.0`을 push하면 릴리스 워크플로가 태그·소스 버전 일치, linux/amd64 이미지, 상태 API, 내부 PostgreSQL, egress 차단과 번들 SHA-256을 검증한 뒤 GitHub Release를 생성합니다. 워크플로는 `permissions: contents: write`를 명시합니다.
+태그 `v0.2.0`을 push하면 릴리스 워크플로가 태그·소스 버전 일치, linux/amd64 이미지, 상태 API, 내부 PostgreSQL, egress 차단, 전체 화면 Playwright와 번들 SHA-256을 검증한 뒤 GitHub Release를 생성합니다. 이미 발행된 릴리스 자산은 덮어쓰지 않습니다.
 
 ## API와 MCP
 
 - jikim 관리 API: `/api/v1/*`
 - OpenBao 제한 호환 API: `/v1/*`
 - MCP JSON-RPC 2.0: `POST /mcp`
+- OpenAPI 3.1: `/api/openapi.json`
+- 구현 역량 조회: `/api/v1/capabilities`
 - 대화형 확인: 관리 화면의 **API 탐색기**
 
 API 응답과 요청 ID, SSE 스트리밍, MCP 도구 목록은 [API 및 MCP 가이드](docs/guides/api-guide.md)를 참조하십시오.

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -36,10 +36,12 @@ import {
   Save,
   Settings2,
   ShieldCheck,
+  Trash2,
   UsersRound,
+  Webhook,
 } from 'lucide-react';
-import { get, patch, post } from '../../lib/api';
-import type { SystemSettings } from '../../lib/types';
+import { get, patch, post, testAIIntegration, testWebhookIntegration } from '../../lib/api';
+import type { IntegrationTestResult, SystemSettings } from '../../lib/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 
@@ -65,20 +67,25 @@ interface OidcSettings {
   client_id: string;
   client_secret: string;
   client_secret_configured: boolean;
+  clear_client_secret: boolean;
   scopes: string;
   group_claim: string;
   role_claim: string;
   username_claim: string;
+  allow_insecure_http: boolean;
 }
 
 interface AiSettings {
   enabled: boolean;
   base_url: string;
+  auth_type: 'bearer' | 'api-key' | 'none';
   api_key: string;
   api_key_configured: boolean;
+  clear_api_key: boolean;
   model: string;
   max_tokens: number;
   timeout_seconds: number;
+  allow_insecure_http: boolean;
 }
 
 interface SecuritySettings {
@@ -93,7 +100,12 @@ interface SecuritySettings {
 interface NotificationSettings {
   enabled: boolean;
   webhook_url: string;
-  email_recipients: string;
+  webhook_configured: boolean;
+  clear_webhook: boolean;
+  signing_secret: string;
+  signing_secret_configured: boolean;
+  rotate_signing_secret: boolean;
+  allow_insecure_http: boolean;
   events: string[];
 }
 
@@ -134,10 +146,14 @@ const approvalTargets = [
 ];
 
 const notificationEvents = [
-  { value: 'approval_requested', label: '승인 요청' },
-  { value: 'rotation_failed', label: '키·Secret 회전 실패' },
-  { value: 'security_alert', label: '보안 경보' },
-  { value: 'certificate_expiring', label: '인증서 만료 예정' },
+  { value: 'approval.requested', label: '승인 요청' },
+  { value: 'approval.approved', label: '요청 승인' },
+  { value: 'approval.rejected', label: '요청 반려' },
+  { value: 'secret.created', label: '시크릿 생성' },
+  { value: 'secret.updated', label: '시크릿 변경' },
+  { value: 'secret.rotated', label: '시크릿 회전' },
+  { value: 'secret.deleted', label: '시크릿 격리' },
+  { value: 'rotation.failed', label: '회전 실패' },
 ];
 
 function record(value: unknown): Record<string, unknown> {
@@ -191,19 +207,24 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
       client_id: stringValue(oidc.client_id),
       client_secret: '',
       client_secret_configured: booleanValue(oidc.client_secret_configured ?? oidc.has_client_secret),
+      clear_client_secret: false,
       scopes: Array.isArray(oidc.scopes) ? stringList(oidc.scopes).join(' ') : stringValue(oidc.scopes, 'openid profile email groups'),
       group_claim: stringValue(oidc.group_claim, 'groups'),
       role_claim: stringValue(oidc.role_claim, 'roles'),
       username_claim: stringValue(oidc.username_claim, 'preferred_username'),
+      allow_insecure_http: booleanValue(oidc.allow_insecure_http),
     },
     ai: {
       enabled: booleanValue(ai.enabled),
       base_url: stringValue(ai.base_url),
+      auth_type: ai.auth_type === 'api-key' || ai.auth_type === 'none' ? ai.auth_type : 'bearer',
       api_key: '',
       api_key_configured: booleanValue(ai.api_key_configured ?? ai.has_api_key),
+      clear_api_key: false,
       model: stringValue(ai.model),
       max_tokens: numberValue(ai.max_tokens, 4096),
       timeout_seconds: numberValue(ai.timeout_seconds, 600),
+      allow_insecure_http: booleanValue(ai.allow_insecure_http),
     },
     security: {
       allow_local_login: booleanValue(security.allow_local_login, true),
@@ -216,13 +237,18 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
     notifications: {
       enabled: booleanValue(notification.enabled),
       webhook_url: stringValue(notification.webhook_url),
-      email_recipients: stringValue(notification.email_recipients),
-      events: stringList(notification.events, ['approval_requested', 'rotation_failed', 'security_alert']),
+      webhook_configured: booleanValue(notification.webhook_configured),
+      clear_webhook: false,
+      signing_secret: '',
+      signing_secret_configured: booleanValue(notification.signing_secret_configured),
+      rotate_signing_secret: false,
+      allow_insecure_http: booleanValue(notification.allow_insecure_http),
+      events: stringList(notification.events, ['approval.requested', 'secret.rotated', 'rotation.failed']),
     },
   };
 }
 
-function settingsPayload(settings: AdminSettings): Record<string, unknown> {
+function settingsPayload(settings: AdminSettings, redirectUrl: string): Record<string, unknown> {
   const oidc: Record<string, unknown> = {
     enabled: settings.oidc.enabled,
     issuer_url: settings.oidc.issuer_url.trim(),
@@ -231,18 +257,34 @@ function settingsPayload(settings: AdminSettings): Record<string, unknown> {
     group_claim: settings.oidc.group_claim.trim(),
     role_claim: settings.oidc.role_claim.trim(),
     username_claim: settings.oidc.username_claim.trim(),
+    allow_insecure_http: settings.oidc.allow_insecure_http,
+    redirect_url: redirectUrl,
+    clear_client_secret: settings.oidc.clear_client_secret,
   };
   if (settings.oidc.client_secret.trim()) oidc.client_secret = settings.oidc.client_secret;
 
   const ai: Record<string, unknown> = {
     enabled: settings.ai.enabled,
     base_url: settings.ai.base_url.trim(),
+    auth_type: settings.ai.auth_type,
     model: settings.ai.model.trim(),
     streaming: true,
     max_tokens: settings.ai.max_tokens,
     timeout_seconds: settings.ai.timeout_seconds,
+    allow_insecure_http: settings.ai.allow_insecure_http,
+    clear_api_key: settings.ai.clear_api_key,
   };
   if (settings.ai.api_key.trim()) ai.api_key = settings.ai.api_key;
+
+  const notifications: Record<string, unknown> = {
+    enabled: settings.notifications.enabled,
+    events: settings.notifications.events,
+    allow_insecure_http: settings.notifications.allow_insecure_http,
+    clear_webhook: settings.notifications.clear_webhook,
+    rotate_signing_secret: settings.notifications.rotate_signing_secret,
+  };
+  if (settings.notifications.webhook_url.trim()) notifications.webhook_url = settings.notifications.webhook_url.trim();
+  if (settings.notifications.signing_secret.trim()) notifications.signing_secret = settings.notifications.signing_secret;
 
   return {
     general: settings.general,
@@ -250,8 +292,37 @@ function settingsPayload(settings: AdminSettings): Record<string, unknown> {
     oidc,
     ai,
     security: settings.security,
-    notifications: settings.notifications,
+    notifications,
   };
+}
+
+function aiSettingsSignature(settings: AiSettings): string {
+  return JSON.stringify({
+    enabled: settings.enabled,
+    base_url: settings.base_url.trim(),
+    auth_type: settings.auth_type,
+    model: settings.model.trim(),
+    max_tokens: settings.max_tokens,
+    timeout_seconds: settings.timeout_seconds,
+    allow_insecure_http: settings.allow_insecure_http,
+    api_key_configured: settings.api_key_configured,
+    new_api_key: Boolean(settings.api_key.trim()),
+    clear_api_key: settings.clear_api_key,
+  });
+}
+
+function webhookSettingsSignature(settings: NotificationSettings): string {
+  return JSON.stringify({
+    enabled: settings.enabled,
+    events: [...settings.events].sort(),
+    webhook_configured: settings.webhook_configured,
+    signing_secret_configured: settings.signing_secret_configured,
+    allow_insecure_http: settings.allow_insecure_http,
+    new_webhook_url: Boolean(settings.webhook_url.trim()),
+    new_signing_secret: Boolean(settings.signing_secret.trim()),
+    clear_webhook: settings.clear_webhook,
+    rotate_signing_secret: settings.rotate_signing_secret,
+  });
 }
 
 function errorMessage(error: unknown): string {
@@ -280,28 +351,68 @@ function SectionHeading({ icon, title, description }: { icon: React.ReactNode; t
   );
 }
 
+function IntegrationResultAlert({ result, successTitle, failureTitle }: { result: IntegrationTestResult; successTitle: string; failureTitle: string }) {
+  return (
+    <Alert
+      role="status"
+      icon={result.ok ? <CheckCircle2 size={18} /> : <CircleAlert size={18} />}
+      color={result.ok ? 'teal' : 'red'}
+      title={result.ok ? successTitle : failureTitle}
+    >
+      <Stack gap={4}>
+        {result.message && <Text>{result.message}</Text>}
+        {result.endpoint && <Text size="sm" style={{ overflowWrap: 'anywhere' }}>Endpoint: {result.endpoint}</Text>}
+        {result.profile && <Text size="sm">Profile: {result.profile}</Text>}
+        {(result.status_code ?? result.status) !== undefined && <Text size="sm">응답 상태: {String(result.status_code ?? result.status)}</Text>}
+        {result.latency_ms !== undefined && <Text size="sm">응답 시간: {result.latency_ms.toLocaleString('ko-KR')} ms</Text>}
+      </Stack>
+    </Alert>
+  );
+}
+
 function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initialSettings: AdminSettings; initialTab?: SettingsTab }) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [settings, setSettings] = useState(initialSettings);
+  const [savedSettings, setSavedSettings] = useState(initialSettings);
   const [oidcResult, setOidcResult] = useState<OidcTestResult | null>(null);
+  const [aiResult, setAiResult] = useState<IntegrationTestResult | null>(null);
+  const [webhookResult, setWebhookResult] = useState<IntegrationTestResult | null>(null);
+  const [saveValidation, setSaveValidation] = useState<string | null>(null);
+  const redirectUrl = `${window.location.origin}/api/v1/oidc/callback`;
 
   const saveMutation = useMutation({
-    mutationFn: () => patch<unknown>('/settings', settingsPayload(settings)),
+    mutationFn: () => patch<unknown>('/settings', settingsPayload(settings, redirectUrl)),
     onSuccess: async () => {
-      setSettings((current) => ({
-        ...current,
+      const persisted: AdminSettings = {
+        ...settings,
         oidc: {
-          ...current.oidc,
+          ...settings.oidc,
           client_secret: '',
-          client_secret_configured: current.oidc.client_secret_configured || Boolean(current.oidc.client_secret),
+          client_secret_configured: Boolean(settings.oidc.client_secret) || (settings.oidc.client_secret_configured && !settings.oidc.clear_client_secret),
+          clear_client_secret: false,
         },
         ai: {
-          ...current.ai,
+          ...settings.ai,
           api_key: '',
-          api_key_configured: current.ai.api_key_configured || Boolean(current.ai.api_key),
+          api_key_configured: Boolean(settings.ai.api_key) || (settings.ai.api_key_configured && !settings.ai.clear_api_key),
+          clear_api_key: false,
         },
-      }));
+        notifications: {
+          ...settings.notifications,
+          webhook_url: '',
+          webhook_configured: Boolean(settings.notifications.webhook_url) || (settings.notifications.webhook_configured && !settings.notifications.clear_webhook),
+          clear_webhook: false,
+          signing_secret: '',
+          signing_secret_configured: settings.notifications.signing_secret_configured || settings.notifications.webhook_configured || Boolean(settings.notifications.signing_secret) || Boolean(settings.notifications.webhook_url),
+          rotate_signing_secret: false,
+        },
+      };
+      setSettings(persisted);
+      setSavedSettings(persisted);
+      setSaveValidation(null);
+      setAiResult(null);
+      setWebhookResult(null);
       await queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
       notifications.show({ color: 'teal', title: '설정 저장 완료', message: '변경한 관리 설정을 안전하게 저장했습니다.' });
     },
@@ -309,7 +420,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
 
   const oidcTestMutation = useMutation({
     mutationFn: async () => {
-      const payload = settingsPayload(settings).oidc as Record<string, unknown>;
+      const payload = settingsPayload(settings, redirectUrl).oidc as Record<string, unknown>;
       return post<OidcTestResult>('/oidc/test', payload);
     },
     onSuccess: (result) => {
@@ -330,15 +441,64 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
     onError: (error) => setOidcResult({ success: false, message: errorMessage(error) }),
   });
 
-  const redirectUrl = useMemo(
-    () => `${window.location.origin}/api/v1/oidc/callback`,
-    [],
-  );
+  const aiTestMutation = useMutation({
+    mutationFn: () => testAIIntegration<IntegrationTestResult>(),
+    onSuccess: (result) => {
+      setAiResult(result);
+      notifications.show({ color: result.ok ? 'teal' : 'red', title: result.ok ? 'AI 연결 성공' : 'AI 연결 실패', message: result.message || (result.ok ? '저장된 AI 설정으로 응답을 확인했습니다.' : 'AI endpoint 응답을 확인하세요.') });
+    },
+    onError: (error) => setAiResult({ ok: false, message: errorMessage(error) }),
+  });
+
+  const webhookTestMutation = useMutation({
+    mutationFn: () => testWebhookIntegration<IntegrationTestResult>(),
+    onSuccess: (result) => {
+      setWebhookResult(result);
+      notifications.show({ color: result.ok ? 'teal' : 'red', title: result.ok ? 'Webhook 전달 성공' : 'Webhook 전달 실패', message: result.message || (result.ok ? '서명된 테스트 이벤트를 전달했습니다.' : 'Webhook endpoint 응답을 확인하세요.') });
+    },
+    onError: (error) => setWebhookResult({ ok: false, message: errorMessage(error) }),
+  });
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setSaveValidation(null);
+    if (settings.oidc.enabled && (!settings.oidc.issuer_url.trim() || !settings.oidc.client_id.trim())) {
+      setActiveTab('oidc');
+      setSaveValidation('OIDC를 사용하려면 Issuer URL과 Client ID를 모두 설정하세요. 비밀 클라이언트인 경우 Client Secret도 입력하세요.');
+      return;
+    }
+    if (settings.ai.enabled && (!settings.ai.base_url.trim() || !settings.ai.model.trim())) {
+      setActiveTab('ai');
+      setSaveValidation('AI를 사용하려면 Base URL과 모델을 모두 설정하세요. 인증이 필요한 endpoint라면 API Key도 입력하세요.');
+      return;
+    }
+    if (settings.ai.enabled && settings.ai.auth_type !== 'none' && !settings.ai.api_key.trim() && (!settings.ai.api_key_configured || settings.ai.clear_api_key)) {
+      setActiveTab('ai');
+      setSaveValidation('선택한 AI 인증 방식에는 API Key가 필요합니다. 무인증 내부 endpoint라면 인증 방식을 “인증 없음”으로 바꾸세요.');
+      return;
+    }
+    if (settings.notifications.enabled && ((!settings.notifications.webhook_configured || settings.notifications.clear_webhook) && !settings.notifications.webhook_url.trim())) {
+      setActiveTab('notifications');
+      setSaveValidation('운영 알림을 사용하려면 Webhook URL을 설정하세요.');
+      return;
+    }
+    if (settings.notifications.signing_secret.trim() && settings.notifications.signing_secret.length < 32) {
+      setActiveTab('notifications');
+      setSaveValidation('Webhook 서명 Secret은 32자 이상이어야 합니다. 비워두면 안전한 값이 자동 생성됩니다.');
+      return;
+    }
+    if (settings.notifications.enabled && settings.notifications.events.length === 0) {
+      setActiveTab('notifications');
+      setSaveValidation('Webhook으로 전달할 이벤트를 하나 이상 선택하세요.');
+      return;
+    }
     saveMutation.mutate();
   };
+
+  const aiHasUnsavedChanges = aiSettingsSignature(settings.ai) !== aiSettingsSignature(savedSettings.ai);
+  const webhookHasUnsavedChanges = webhookSettingsSignature(settings.notifications) !== webhookSettingsSignature(savedSettings.notifications);
+  const aiTestReady = Boolean(savedSettings.ai.base_url.trim()) && Boolean(savedSettings.ai.model.trim()) && !aiHasUnsavedChanges;
+  const webhookTestReady = savedSettings.notifications.webhook_configured && savedSettings.notifications.signing_secret_configured && !webhookHasUnsavedChanges;
 
   return (
     <form onSubmit={submit} noValidate>
@@ -354,8 +514,11 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
               variant="default"
               leftSection={<RotateCcw size={17} />}
               onClick={() => {
-                setSettings(initialSettings);
+                setSettings(savedSettings);
                 setOidcResult(null);
+                setAiResult(null);
+                setWebhookResult(null);
+                setSaveValidation(null);
               }}
               disabled={saveMutation.isPending}
             >
@@ -367,9 +530,9 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
           </Group>
         </Group>
 
-        {saveMutation.isError && (
+        {(saveValidation || saveMutation.isError) && (
           <Alert icon={<CircleAlert size={18} />} color="red" title="설정을 저장하지 못했습니다" role="alert">
-            {errorMessage(saveMutation.error)}
+            {saveValidation || errorMessage(saveMutation.error)}
           </Alert>
         )}
 
@@ -391,7 +554,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
 
             <Tabs.Panel value="general" pt="xl">
               <Stack gap="xl">
-                <SectionHeading icon={<Languages size={20} />} title="일반 설정" description="v0.1.0의 제품명과 한국어 운영 기준을 확인합니다." />
+                <SectionHeading icon={<Languages size={20} />} title="일반 설정" description="v0.2.0의 제품명과 한국어 운영 기준을 확인합니다." />
                 <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
                   <TextInput
                     label="서비스 표시 이름"
@@ -509,7 +672,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                       checked
                       disabled
                       label="요청자 본인 승인 금지"
-                      description="요청자와 승인자가 반드시 다르도록 항상 강제합니다. v0.1.0은 1인 승인을 지원합니다."
+                      description="요청자와 승인자가 반드시 다르도록 항상 강제합니다. v0.2.0은 1인 승인을 지원합니다."
                     />
                     <Checkbox.Group
                       label="승인 적용 작업"
@@ -573,10 +736,10 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     value={settings.oidc.client_secret}
                     onChange={(event) => setSettings((current) => ({
                       ...current,
-                      oidc: { ...current.oidc, client_secret: event.currentTarget.value },
+                      oidc: { ...current.oidc, client_secret: event.currentTarget.value, clear_client_secret: false },
                     }))}
                   />
-                  <TextInput label="Redirect URL" description="Keycloak client의 Valid redirect URI에 등록하세요." value={redirectUrl} readOnly />
+                  <TextInput label="Callback URL" description="Keycloak client의 Valid redirect URI에 이 절대 URL을 등록하세요." value={redirectUrl} readOnly />
                   <TextInput
                     label="Scopes"
                     description="공백으로 구분합니다."
@@ -611,6 +774,15 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     }))}
                   />
                 </SimpleGrid>
+                <Switch
+                  checked={settings.oidc.allow_insecure_http}
+                  onChange={(event) => setSettings((current) => ({
+                    ...current,
+                    oidc: { ...current.oidc, allow_insecure_http: event.currentTarget.checked },
+                  }))}
+                  label="OIDC 내부 HTTP 허용"
+                  description="기본값은 OFF입니다. TLS를 적용할 수 없는 신뢰된 내부 개발망에서만 사용하세요."
+                />
                 <Group>
                   <Button
                     type="button"
@@ -622,7 +794,25 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                   >
                     Discovery 연결 테스트
                   </Button>
-                  {settings.oidc.client_secret_configured && <Badge color="teal">Client Secret 설정됨</Badge>}
+                  {settings.oidc.clear_client_secret
+                    ? <Badge color="orange">Client Secret 저장 시 삭제</Badge>
+                    : settings.oidc.client_secret_configured && <Badge color="teal">Client Secret 설정됨</Badge>}
+                  {settings.oidc.client_secret_configured && !settings.oidc.clear_client_secret && (
+                    <Button
+                      type="button"
+                      size="xs"
+                      color="red"
+                      variant="subtle"
+                      leftSection={<Trash2 size={15} />}
+                      onClick={() => {
+                        if (!window.confirm('저장된 OIDC Client Secret을 삭제할까요? 비밀 클라이언트는 삭제 후 로그인할 수 없습니다.')) return;
+                        setOidcResult(null);
+                        setSettings((current) => ({ ...current, oidc: { ...current.oidc, client_secret: '', clear_client_secret: true } }));
+                      }}
+                    >
+                      Client Secret 삭제
+                    </Button>
+                  )}
                 </Group>
                 {oidcResult && (
                   <Alert
@@ -678,15 +868,32 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                       ai: { ...current.ai, model: event.currentTarget.value },
                     }))}
                   />
+                  <Select
+                    label="API 인증 방식"
+                    description="연결한 OpenAI-compatible endpoint의 인증 헤더 방식입니다."
+                    data={[
+                      { value: 'bearer', label: 'Bearer Token (Authorization)' },
+                      { value: 'api-key', label: 'API Key Header (api-key)' },
+                      { value: 'none', label: '인증 없음 (내부망)' },
+                    ]}
+                    value={settings.ai.auth_type}
+                    onChange={(value) => setSettings((current) => ({
+                      ...current,
+                      ai: { ...current.ai, auth_type: (value || 'bearer') as AiSettings['auth_type'] },
+                    }))}
+                  />
                   <PasswordInput
                     label="API Key"
-                    description={settings.ai.api_key_configured ? '저장된 키가 있습니다. 비워두면 기존 값을 유지합니다.' : '암호화해 저장하며 다시 표시하지 않습니다.'}
+                    description={settings.ai.auth_type === 'none'
+                      ? '인증 없음에서는 API Key를 전송하지 않습니다.'
+                      : settings.ai.api_key_configured ? '저장된 키가 있습니다. 비워두면 기존 값을 유지합니다.' : '암호화해 저장하며 다시 표시하지 않습니다.'}
                     placeholder={settings.ai.api_key_configured ? '•••••••••••• (설정됨)' : 'API Key 입력'}
                     autoComplete="new-password"
+                    disabled={settings.ai.auth_type === 'none'}
                     value={settings.ai.api_key}
                     onChange={(event) => setSettings((current) => ({
                       ...current,
-                      ai: { ...current.ai, api_key: event.currentTarget.value },
+                      ai: { ...current.ai, api_key: event.currentTarget.value, clear_api_key: false },
                     }))}
                   />
                   <NumberInput
@@ -720,7 +927,48 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     description="AI 응답은 항상 스트리밍으로 처리되며 끌 수 없습니다."
                   />
                 </SimpleGrid>
-                {settings.ai.api_key_configured && <Badge color="teal" w="fit-content">API Key 설정됨</Badge>}
+                <Switch
+                  checked={settings.ai.allow_insecure_http}
+                  onChange={(event) => setSettings((current) => ({
+                    ...current,
+                    ai: { ...current.ai, allow_insecure_http: event.currentTarget.checked },
+                  }))}
+                  label="AI endpoint 내부 HTTP 허용"
+                  description="기본값은 OFF입니다. TLS를 적용할 수 없는 신뢰된 내부 개발망에서만 사용하세요."
+                />
+                <Group>
+                  {settings.ai.clear_api_key
+                    ? <Badge color="orange">API Key 저장 시 삭제</Badge>
+                    : settings.ai.api_key_configured && <Badge color="teal">API Key 설정됨</Badge>}
+                  {settings.ai.api_key_configured && !settings.ai.clear_api_key && (
+                    <Button
+                      type="button"
+                      size="xs"
+                      color="red"
+                      variant="subtle"
+                      leftSection={<Trash2 size={15} />}
+                      onClick={() => {
+                        if (!window.confirm('저장된 AI API Key를 삭제할까요? 인증이 필요한 AI endpoint는 삭제 후 사용할 수 없습니다.')) return;
+                        setAiResult(null);
+                        setSettings((current) => ({ ...current, ai: { ...current.ai, api_key: '', clear_api_key: true } }));
+                      }}
+                    >
+                      API Key 삭제
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="light"
+                    leftSection={aiTestMutation.isPending ? <Loader size={16} /> : <RefreshCw size={17} />}
+                    loading={aiTestMutation.isPending}
+                    disabled={!aiTestReady}
+                    onClick={() => aiTestMutation.mutate()}
+                  >
+                    저장된 AI 연결 테스트
+                  </Button>
+                </Group>
+                {aiHasUnsavedChanges && <Text size="sm" c="dimmed">변경 사항을 저장하면 새 설정으로 연결을 테스트할 수 있습니다.</Text>}
+                {!aiHasUnsavedChanges && aiResult && <IntegrationResultAlert result={aiResult} successTitle="AI 연결 확인 완료" failureTitle="AI 연결 확인 실패" />}
               </Stack>
             </Tabs.Panel>
 
@@ -728,7 +976,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
               <Stack gap="xl">
                 <SectionHeading icon={<ShieldCheck size={20} />} title="보안 정책" description="인증 세션과 비밀번호, 감사 보존 정책을 설정합니다." />
                 <Alert color="blue" title="즉시 적용되는 설정">
-                  세션 제한 시간, 최소 비밀번호 길이와 로컬 로그인 허용은 저장 후 새 요청부터 적용됩니다. 보존 자동화·네트워크 강제·최초 비밀번호 변경 강제는 v0.1.0 프리뷰입니다.
+                  세션 제한 시간, 최소 비밀번호 길이와 로컬 로그인 허용은 저장 후 새 요청부터 적용됩니다. 보존 자동화·네트워크 강제·최초 비밀번호 변경 강제는 v0.2.0 프리뷰입니다.
                 </Alert>
                 <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
                   <NumberInput
@@ -755,7 +1003,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                   />
                   <NumberInput
                     label="감사 로그 보존 기간(일)"
-                    description="보존 정책 메타데이터 프리뷰이며 v0.1.0은 자동 삭제를 수행하지 않습니다."
+                    description="보존 정책 메타데이터 프리뷰이며 v0.2.0은 자동 삭제를 수행하지 않습니다."
                     disabled
                     min={30}
                     max={3650}
@@ -768,7 +1016,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                   />
                   <TextInput
                     label="허용 네트워크"
-                    description="네트워크 Zone 프리뷰입니다. v0.1.0에서는 Reverse Proxy나 방화벽에서 강제하세요."
+                    description="네트워크 Zone 프리뷰입니다. v0.2.0에서는 Reverse Proxy나 방화벽에서 강제하세요."
                     disabled
                     placeholder="10.10.0.0/16, 10.20.0.0/16"
                     value={settings.security.allowed_networks}
@@ -795,54 +1043,109 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     security: { ...current.security, require_password_change: event.currentTarget.checked },
                   }))}
                   label="Bootstrap 관리자의 최초 비밀번호 변경 요구 (프리뷰)"
-                  description="v0.1.0은 상태를 저장하지만 로그인 시 강제하지 않습니다. 배포 직후 프로필에서 직접 변경하세요."
+                  description="v0.2.0은 상태를 저장하지만 로그인 시 강제하지 않습니다. 배포 직후 프로필에서 직접 변경하세요."
                 />
               </Stack>
             </Tabs.Panel>
 
             <Tabs.Panel value="notifications" pt="xl">
               <Stack gap="xl">
-                <SectionHeading icon={<Bell size={20} />} title="알림 (프리뷰)" description="향후 폐쇄망 webhook과 메일 릴레이로 운영 이벤트를 전달할 설정 초안입니다." />
-                <Alert color="yellow" title="v0.1.0은 알림을 전송하지 않습니다">
-                  입력값은 운영 전송 기능이 구현될 때까지 변경할 수 없습니다. 현재 이벤트는 감사 로그에서 확인하세요.
+                <SectionHeading icon={<Webhook size={20} />} title="서명 Webhook 알림" description="운영 이벤트를 폐쇄망 HTTP endpoint로 전달하고 HMAC 서명으로 발신자를 검증합니다." />
+                <Alert color="blue" title="수신 측에서 서명을 검증하세요">
+                  서명 Secret은 암호화해 저장하고 다시 표시하지 않습니다. 새 연결에서 비워두면 저장 시 안전한 값이 자동 생성됩니다.
                 </Alert>
                 <Switch
                   size="md"
-                  disabled
                   checked={settings.notifications.enabled}
                   onChange={(event) => setSettings((current) => ({
                     ...current,
                     notifications: { ...current.notifications, enabled: event.currentTarget.checked },
                   }))}
-                  label="운영 알림 사용"
+                  label="서명 Webhook 알림 사용"
+                  description="저장 후 선택한 운영 이벤트를 Webhook으로 전달합니다."
                 />
                 <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
                   <TextInput
                     type="url"
-                    disabled
                     label="Webhook URL"
-                    description="Mattermost 등 내부 HTTP endpoint를 입력하세요."
-                    placeholder="https://mattermost.intra/hooks/..."
+                    description={settings.notifications.webhook_configured ? '저장된 URL이 있습니다. 비워두면 기존 값을 유지합니다.' : '폐쇄망에서 접근 가능한 HTTP endpoint를 입력하세요.'}
+                    placeholder={settings.notifications.webhook_configured ? '•••••••••••• (설정됨)' : 'https://hooks.example.internal/jikim'}
+                    required={settings.notifications.enabled && !settings.notifications.webhook_configured}
                     value={settings.notifications.webhook_url}
                     onChange={(event) => setSettings((current) => ({
                       ...current,
-                      notifications: { ...current.notifications, webhook_url: event.currentTarget.value },
+                      notifications: { ...current.notifications, webhook_url: event.currentTarget.value, clear_webhook: false },
                     }))}
                   />
-                  <TextInput
-                    label="메일 수신자"
-                    disabled
-                    description="쉼표로 구분합니다. SMTP 연결은 시스템 관리자가 구성해야 합니다."
-                    placeholder="security@example.internal, ops@example.internal"
-                    value={settings.notifications.email_recipients}
+                  <PasswordInput
+                    label="Webhook 서명 Secret"
+                    description={settings.notifications.signing_secret_configured ? '저장된 Secret이 있습니다. 비워두면 기존 값을 유지합니다.' : '비워두면 저장 시 안전한 Secret을 자동 생성합니다.'}
+                    placeholder={settings.notifications.signing_secret_configured ? '•••••••••••• (설정됨)' : '직접 지정하거나 비워두기'}
+                    autoComplete="new-password"
+                    value={settings.notifications.signing_secret}
                     onChange={(event) => setSettings((current) => ({
                       ...current,
-                      notifications: { ...current.notifications, email_recipients: event.currentTarget.value },
+                      notifications: { ...current.notifications, signing_secret: event.currentTarget.value, rotate_signing_secret: false },
                     }))}
                   />
                 </SimpleGrid>
+                <Group gap="xs">
+                  {settings.notifications.clear_webhook
+                    ? <Badge color="orange">Webhook URL 저장 시 삭제</Badge>
+                    : settings.notifications.webhook_configured && <Badge color="teal">Webhook URL 설정됨</Badge>}
+                  {settings.notifications.rotate_signing_secret
+                    ? <Badge color="orange">서명 Secret 저장 시 회전</Badge>
+                    : settings.notifications.signing_secret_configured && <Badge color="teal">서명 Secret 설정됨</Badge>}
+                  {settings.notifications.webhook_configured && !settings.notifications.clear_webhook && (
+                    <Button
+                      type="button"
+                      size="xs"
+                      color="red"
+                      variant="subtle"
+                      leftSection={<Trash2 size={15} />}
+                      onClick={() => {
+                        if (!window.confirm('저장된 Webhook URL을 삭제하고 알림을 끌까요?')) return;
+                        setWebhookResult(null);
+                        setSettings((current) => ({
+                          ...current,
+                          notifications: { ...current.notifications, enabled: false, webhook_url: '', clear_webhook: true },
+                        }));
+                      }}
+                    >
+                      Webhook 삭제
+                    </Button>
+                  )}
+                  {settings.notifications.signing_secret_configured && !settings.notifications.rotate_signing_secret && (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="subtle"
+                      leftSection={<RotateCcw size={15} />}
+                      onClick={() => {
+                        if (!window.confirm('Webhook 서명 Secret을 회전할까요? 저장 즉시 기존 Secret으로 만든 서명은 더 이상 유효하지 않습니다.')) return;
+                        setWebhookResult(null);
+                        setSettings((current) => ({
+                          ...current,
+                          notifications: { ...current.notifications, signing_secret: '', rotate_signing_secret: true },
+                        }));
+                      }}
+                    >
+                      서명 키 회전
+                    </Button>
+                  )}
+                </Group>
+                <Switch
+                  checked={settings.notifications.allow_insecure_http}
+                  onChange={(event) => setSettings((current) => ({
+                    ...current,
+                    notifications: { ...current.notifications, allow_insecure_http: event.currentTarget.checked },
+                  }))}
+                  label="Webhook 내부 HTTP 허용"
+                  description="기본값은 OFF입니다. TLS를 적용할 수 없는 신뢰된 내부 개발망에서만 사용하세요."
+                />
                 <Checkbox.Group
                   label="알림 이벤트"
+                  description="Webhook으로 전달할 이벤트를 선택합니다."
                   value={settings.notifications.events}
                   onChange={(events) => setSettings((current) => ({
                     ...current,
@@ -850,9 +1153,24 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                   }))}
                 >
                   <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
-                    {notificationEvents.map((event) => <Checkbox key={event.value} value={event.value} label={event.label} disabled />)}
+                    {notificationEvents.map((event) => <Checkbox key={event.value} value={event.value} label={event.label} disabled={!settings.notifications.enabled} />)}
                   </SimpleGrid>
                 </Checkbox.Group>
+                <Group>
+                  <Button
+                    type="button"
+                    variant="light"
+                    leftSection={webhookTestMutation.isPending ? <Loader size={16} /> : <RefreshCw size={17} />}
+                    loading={webhookTestMutation.isPending}
+                    disabled={!webhookTestReady}
+                    onClick={() => webhookTestMutation.mutate()}
+                  >
+                    저장된 Webhook 연결 테스트
+                  </Button>
+                </Group>
+                {webhookHasUnsavedChanges && <Text size="sm" c="dimmed">변경 사항을 저장하면 새 URL과 서명 Secret으로 테스트 이벤트를 보낼 수 있습니다.</Text>}
+                {!webhookHasUnsavedChanges && webhookResult && <IntegrationResultAlert result={webhookResult} successTitle="Webhook 전달 확인 완료" failureTitle="Webhook 전달 확인 실패" />}
+                <Text size="sm" c="dimmed">이 릴리스의 알림 채널은 서명 Webhook만 지원합니다. 이메일·SMTP 알림은 제공하지 않습니다.</Text>
               </Stack>
             </Tabs.Panel>
           </Tabs>

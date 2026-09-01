@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -14,19 +15,21 @@ import (
 )
 
 var allowedSettingKeys = map[string]bool{
-	"workflow":             true,
-	"service":              true,
-	"oidc":                 true,
-	"oidc_client_secret":   true,
-	"ai":                   true,
-	"ai_api_key":           true,
-	"security":             true,
-	"notifications":        true,
-	"notification_webhook": true,
+	"workflow":                    true,
+	"service":                     true,
+	"oidc":                        true,
+	"oidc_client_secret":          true,
+	"ai":                          true,
+	"ai_api_key":                  true,
+	"security":                    true,
+	"notifications":               true,
+	"notification_webhook":        true,
+	"notification_webhook_secret": true,
 }
 
 func SensitiveSetting(key string) bool {
-	return key == "oidc_client_secret" || key == "ai_api_key" || key == "notification_webhook"
+	return key == "oidc_client_secret" || key == "ai_api_key" ||
+		key == "notification_webhook" || key == "notification_webhook_secret"
 }
 
 func (s *Store) PutSetting(ctx context.Context, key string, value map[string]any, actorID string) error {
@@ -76,8 +79,56 @@ func (s *Store) PatchSetting(ctx context.Context, key string, patch map[string]a
 	return s.PutSetting(ctx, key, merged, actorID)
 }
 
+func (s *Store) DeleteSetting(ctx context.Context, key string) error {
+	if !SensitiveSetting(key) {
+		return fmt.Errorf("%w: 민감 설정만 삭제할 수 있습니다", ErrInvalid)
+	}
+	_, err := s.pool.Exec(ctx, `DELETE FROM settings WHERE key=$1`, key)
+	return err
+}
+
+func (s *Store) SettingConfigured(ctx context.Context, key string) (bool, error) {
+	if !SensitiveSetting(key) {
+		return false, fmt.Errorf("%w: 민감 설정 키가 아닙니다", ErrInvalid)
+	}
+	var configured bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM settings WHERE key=$1 AND sensitive=true
+		AND ciphertext IS NOT NULL AND octet_length(ciphertext)>0)`, key).Scan(&configured)
+	return configured, err
+}
+
+func ValidateSetting(key string, value map[string]any) error {
+	if !allowedSettingKeys[key] || SensitiveSetting(key) {
+		return fmt.Errorf("%w: 허용되지 않은 일반 설정 키", ErrInvalid)
+	}
+	return validateSetting(key, value)
+}
+
+func ValidateWebhookURL(raw string, allowInsecure bool) error {
+	if err := validateIntegrationURL(raw, allowInsecure, true); err != nil {
+		return fmt.Errorf("%w: webhook URL: %v", ErrInvalid, err)
+	}
+	return nil
+}
+
 func validateSetting(key string, value map[string]any) error {
 	switch key {
+	case "oidc_client_secret", "ai_api_key":
+		secret, ok := value["value"].(string)
+		if !ok || strings.TrimSpace(secret) == "" {
+			return fmt.Errorf("%w: 민감 설정 값이 비어 있습니다", ErrInvalid)
+		}
+	case "notification_webhook":
+		webhook, ok := value["value"].(string)
+		if !ok || strings.TrimSpace(webhook) == "" {
+			return fmt.Errorf("%w: Webhook URL이 비어 있습니다", ErrInvalid)
+		}
+	case "notification_webhook_secret":
+		secret, ok := value["value"].(string)
+		if !ok || len(secret) < 32 {
+			return fmt.Errorf("%w: Webhook 서명 키는 32자 이상이어야 합니다", ErrInvalid)
+		}
 	case "workflow":
 		if raw, ok := value["approval_enabled"]; ok {
 			if _, ok := raw.(bool); !ok {
@@ -103,17 +154,64 @@ func validateSetting(key string, value map[string]any) error {
 			}
 		}
 	case "oidc":
-		if raw, ok := value["issuer_url"].(string); ok && raw != "" {
-			u, err := url.Parse(raw)
-			if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-				return fmt.Errorf("%w: issuer_url이 올바르지 않습니다", ErrInvalid)
+		enabled, err := optionalBool(value, "enabled")
+		if err != nil {
+			return err
+		}
+		allowInsecure, err := optionalBool(value, "allow_insecure_http")
+		if err != nil {
+			return err
+		}
+		issuer, _ := value["issuer_url"].(string)
+		clientID, _ := value["client_id"].(string)
+		redirectURL, _ := value["redirect_url"].(string)
+		if enabled && (strings.TrimSpace(issuer) == "" || strings.TrimSpace(clientID) == "" || strings.TrimSpace(redirectURL) == "") {
+			return fmt.Errorf("%w: OIDC를 사용하려면 issuer_url, client_id, redirect_url이 필요합니다", ErrInvalid)
+		}
+		if issuer != "" {
+			if err := validateIntegrationURL(issuer, allowInsecure, false); err != nil {
+				return fmt.Errorf("%w: issuer_url: %v", ErrInvalid, err)
+			}
+		}
+		if redirectURL != "" {
+			if err := validateIntegrationURL(redirectURL, allowInsecure, false); err != nil {
+				return fmt.Errorf("%w: redirect_url: %v", ErrInvalid, err)
+			}
+		}
+		if rawScopes, ok := value["scopes"]; ok {
+			scopes, ok := rawScopes.([]any)
+			if !ok {
+				return fmt.Errorf("%w: scopes는 문자열 배열이어야 합니다", ErrInvalid)
+			}
+			hasOpenID := false
+			for _, raw := range scopes {
+				scope, ok := raw.(string)
+				if !ok || strings.TrimSpace(scope) == "" {
+					return fmt.Errorf("%w: scopes는 빈 값이 없는 문자열 배열이어야 합니다", ErrInvalid)
+				}
+				hasOpenID = hasOpenID || scope == "openid"
+			}
+			if enabled && !hasOpenID {
+				return fmt.Errorf("%w: OIDC scopes에는 openid가 필요합니다", ErrInvalid)
 			}
 		}
 	case "ai":
-		if raw, ok := value["base_url"].(string); ok && raw != "" {
-			u, err := url.Parse(raw)
-			if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-				return fmt.Errorf("%w: AI base_url이 올바르지 않습니다", ErrInvalid)
+		enabled, err := optionalBool(value, "enabled")
+		if err != nil {
+			return err
+		}
+		allowInsecure, err := optionalBool(value, "allow_insecure_http")
+		if err != nil {
+			return err
+		}
+		baseURL, _ := value["base_url"].(string)
+		modelName, _ := value["model"].(string)
+		if enabled && (strings.TrimSpace(baseURL) == "" || strings.TrimSpace(modelName) == "") {
+			return fmt.Errorf("%w: AI를 사용하려면 base_url과 model이 필요합니다", ErrInvalid)
+		}
+		if baseURL != "" {
+			if err := validateIntegrationURL(baseURL, allowInsecure, true); err != nil {
+				return fmt.Errorf("%w: AI base_url: %v", ErrInvalid, err)
 			}
 		}
 		if raw, ok := numberAsInt(value["max_tokens"]); ok && (raw < 1 || raw > 262144) {
@@ -121,6 +219,34 @@ func validateSetting(key string, value map[string]any) error {
 		}
 		if raw, ok := numberAsInt(value["timeout_seconds"]); ok && (raw < 10 || raw > 3600) {
 			return fmt.Errorf("%w: timeout_seconds는 10~3600이어야 합니다", ErrInvalid)
+		}
+		if raw, ok := value["temperature"]; ok {
+			temperature, ok := raw.(float64)
+			if !ok || temperature < 0 || temperature > 2 {
+				return fmt.Errorf("%w: temperature는 0~2여야 합니다", ErrInvalid)
+			}
+		}
+		if authType, ok := value["auth_type"].(string); ok && authType != "" && authType != "bearer" && authType != "api-key" && authType != "none" {
+			return fmt.Errorf("%w: auth_type은 bearer, api-key, none 중 하나여야 합니다", ErrInvalid)
+		}
+	case "notifications":
+		if _, err := optionalBool(value, "enabled"); err != nil {
+			return err
+		}
+		if _, err := optionalBool(value, "allow_insecure_http"); err != nil {
+			return err
+		}
+		if rawEvents, ok := value["events"]; ok {
+			events, ok := rawEvents.([]any)
+			if !ok {
+				return fmt.Errorf("%w: events는 문자열 배열이어야 합니다", ErrInvalid)
+			}
+			for _, raw := range events {
+				event, ok := raw.(string)
+				if !ok || !supportedWebhookEvents[event] {
+					return fmt.Errorf("%w: 지원하지 않는 webhook event", ErrInvalid)
+				}
+			}
 		}
 	case "security":
 		if raw, ok := numberAsInt(value["session_timeout_minutes"]); ok && (raw < 5 || raw > 1440) {
@@ -131,6 +257,51 @@ func validateSetting(key string, value map[string]any) error {
 		}
 		if raw, ok := numberAsInt(value["audit_retention_days"]); ok && (raw < 1 || raw > 3650) {
 			return fmt.Errorf("%w: audit_retention_days는 1~3650이어야 합니다", ErrInvalid)
+		}
+	}
+	return nil
+}
+
+var supportedWebhookEvents = map[string]bool{
+	"approval.requested": true,
+	"approval.approved":  true,
+	"approval.rejected":  true,
+	"secret.created":     true,
+	"secret.updated":     true,
+	"secret.rotated":     true,
+	"secret.deleted":     true,
+	"rotation.failed":    true,
+}
+
+func SupportedWebhookEvents() []string {
+	return []string{"approval.requested", "approval.approved", "approval.rejected", "secret.created", "secret.updated", "secret.rotated", "secret.deleted", "rotation.failed"}
+}
+
+func optionalBool(value map[string]any, key string) (bool, error) {
+	raw, ok := value[key]
+	if !ok {
+		return false, nil
+	}
+	result, ok := raw.(bool)
+	if !ok {
+		return false, fmt.Errorf("%w: %s는 boolean이어야 합니다", ErrInvalid, key)
+	}
+	return result, nil
+}
+
+func validateIntegrationURL(raw string, allowInsecure, allowQuery bool) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return errors.New("http(s) URL 형식이 아닙니다")
+	}
+	if u.User != nil || u.Fragment != "" || (!allowQuery && u.RawQuery != "") {
+		return errors.New("사용자 정보, fragment 또는 query를 포함할 수 없습니다")
+	}
+	if u.Scheme == "http" && !allowInsecure {
+		host := strings.Trim(strings.ToLower(u.Hostname()), "[]")
+		ip := net.ParseIP(host)
+		if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return errors.New("HTTPS가 필요합니다(HTTP 사용 시 allow_insecure_http를 명시하세요)")
 		}
 	}
 	return nil
@@ -301,17 +472,19 @@ func (s *Store) SecurityConfig(ctx context.Context) (SecurityConfig, error) {
 }
 
 type AIConfig struct {
-	Enabled        bool
-	BaseURL        string
-	Model          string
-	MaxTokens      int
-	Temperature    float64
-	APIKey         string
-	TimeoutSeconds int
+	Enabled           bool
+	BaseURL           string
+	Model             string
+	MaxTokens         int
+	Temperature       float64
+	APIKey            string
+	TimeoutSeconds    int
+	AuthType          string
+	AllowInsecureHTTP bool
 }
 
 func (s *Store) AIConfig(ctx context.Context) (AIConfig, error) {
-	cfg := AIConfig{MaxTokens: 4096, Temperature: 0.2, TimeoutSeconds: 600}
+	cfg := AIConfig{MaxTokens: 4096, Temperature: 0.2, TimeoutSeconds: 600, AuthType: "bearer"}
 	setting, err := s.GetSetting(ctx, "ai", false)
 	if errors.Is(err, ErrNotFound) {
 		return cfg, nil
@@ -331,6 +504,10 @@ func (s *Store) AIConfig(ctx context.Context) (AIConfig, error) {
 	if n, ok := numberAsInt(setting.Value["timeout_seconds"]); ok {
 		cfg.TimeoutSeconds = n
 	}
+	if value, ok := setting.Value["auth_type"].(string); ok && value != "" {
+		cfg.AuthType = value
+	}
+	cfg.AllowInsecureHTTP, _ = setting.Value["allow_insecure_http"].(bool)
 	secret, err := s.GetSetting(ctx, "ai_api_key", true)
 	if err == nil {
 		cfg.APIKey, _ = secret.Value["value"].(string)
@@ -353,15 +530,16 @@ func (s *Store) AIConfig(ctx context.Context) (AIConfig, error) {
 }
 
 type OIDCConfig struct {
-	Enabled       bool
-	IssuerURL     string
-	ClientID      string
-	ClientSecret  string
-	Scopes        []string
-	UsernameClaim string
-	GroupClaim    string
-	RoleClaim     string
-	RedirectURL   string
+	Enabled           bool
+	IssuerURL         string
+	ClientID          string
+	ClientSecret      string
+	Scopes            []string
+	UsernameClaim     string
+	GroupClaim        string
+	RoleClaim         string
+	RedirectURL       string
+	AllowInsecureHTTP bool
 }
 
 func (s *Store) OIDCConfig(ctx context.Context) (OIDCConfig, error) {
@@ -377,6 +555,7 @@ func (s *Store) OIDCConfig(ctx context.Context) (OIDCConfig, error) {
 	cfg.GroupClaim, _ = setting.Value["group_claim"].(string)
 	cfg.RoleClaim, _ = setting.Value["role_claim"].(string)
 	cfg.RedirectURL, _ = setting.Value["redirect_url"].(string)
+	cfg.AllowInsecureHTTP, _ = setting.Value["allow_insecure_http"].(bool)
 	if raw, ok := setting.Value["scopes"].([]any); ok {
 		for _, scope := range raw {
 			if value, ok := scope.(string); ok {
@@ -389,6 +568,56 @@ func (s *Store) OIDCConfig(ctx context.Context) (OIDCConfig, error) {
 		cfg.ClientSecret, _ = secret.Value["value"].(string)
 	} else if !errors.Is(err, ErrNotFound) {
 		return OIDCConfig{}, err
+	}
+	return cfg, nil
+}
+
+type WebhookConfig struct {
+	Enabled           bool
+	URL               string
+	SigningSecret     string
+	Events            map[string]bool
+	AllowInsecureHTTP bool
+}
+
+func (s *Store) WebhookConfig(ctx context.Context) (WebhookConfig, error) {
+	cfg := WebhookConfig{Events: make(map[string]bool)}
+	setting, err := s.GetSetting(ctx, "notifications", false)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return WebhookConfig{}, err
+	}
+	if err == nil {
+		cfg.Enabled, _ = setting.Value["enabled"].(bool)
+		cfg.AllowInsecureHTTP, _ = setting.Value["allow_insecure_http"].(bool)
+		if rawEvents, ok := setting.Value["events"].([]any); ok {
+			for _, raw := range rawEvents {
+				if event, ok := raw.(string); ok && supportedWebhookEvents[event] {
+					cfg.Events[event] = true
+				}
+			}
+		}
+	}
+	if len(cfg.Events) == 0 {
+		for _, event := range SupportedWebhookEvents() {
+			cfg.Events[event] = true
+		}
+	}
+	webhook, err := s.GetSetting(ctx, "notification_webhook", true)
+	if err == nil {
+		cfg.URL, _ = webhook.Value["value"].(string)
+	} else if !errors.Is(err, ErrNotFound) {
+		return WebhookConfig{}, err
+	}
+	secret, err := s.GetSetting(ctx, "notification_webhook_secret", true)
+	if err == nil {
+		cfg.SigningSecret, _ = secret.Value["value"].(string)
+	} else if !errors.Is(err, ErrNotFound) {
+		return WebhookConfig{}, err
+	}
+	if cfg.URL != "" {
+		if err := validateIntegrationURL(cfg.URL, cfg.AllowInsecureHTTP, true); err != nil {
+			return WebhookConfig{}, fmt.Errorf("%w: webhook URL: %v", ErrInvalid, err)
+		}
 	}
 	return cfg, nil
 }

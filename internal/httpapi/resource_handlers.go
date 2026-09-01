@@ -1,24 +1,52 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/hkjang/jikim/internal/cryptox"
 	"github.com/hkjang/jikim/internal/model"
 	"github.com/hkjang/jikim/internal/store"
 )
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
-	value, err := s.store.Dashboard(r.Context())
+	session, _ := sessionFrom(r)
+	value, err := s.roleScopedDashboard(r.Context(), session)
 	if err != nil {
 		s.storeError(w, r, err)
 		return
 	}
-	session, _ := sessionFrom(r)
-	value = dashboardForRole(value, session.User.Role)
 	writeData(w, http.StatusOK, value)
+}
+
+func (s *Server) roleScopedDashboard(ctx context.Context, session model.Session) (model.Dashboard, error) {
+	privileged := session.User.Role == "admin" || session.User.Role == "manager" || session.User.Role == "auditor"
+	var value model.Dashboard
+	var err error
+	if privileged {
+		value, err = s.store.Dashboard(ctx)
+	} else {
+		value, err = s.store.UserDashboard(ctx, session.User.ID)
+	}
+	if err != nil {
+		return model.Dashboard{}, err
+	}
+	value = dashboardForRole(value, session.User.Role)
+	cfg, err := s.store.ApprovalConfig(ctx)
+	if err != nil {
+		return model.Dashboard{}, err
+	}
+	if !approvalReviewerAllowed(cfg.ReviewerRole, session.User.Role) {
+		value.PendingApprovals, err = s.store.CountPendingApprovalsForUser(ctx, session.User.ID)
+		if err != nil {
+			return model.Dashboard{}, err
+		}
+	}
+	return value, nil
 }
 
 func dashboardForRole(value model.Dashboard, role string) model.Dashboard {
@@ -508,6 +536,11 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, decisio
 		s.storeError(w, r, err)
 		return
 	}
+	eventType := "approval.rejected"
+	if decision == "approved" {
+		eventType = "approval.approved"
+	}
+	s.queueWebhook(r, eventType, item.Resource, map[string]any{"action": item.Action, "approval_id": item.ID})
 	writeData(w, http.StatusOK, item)
 }
 
@@ -540,7 +573,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		"oidc":          map[string]any{"enabled": false, "client_secret_configured": false},
 		"ai":            map[string]any{"enabled": false, "api_key_configured": false},
 		"security":      map[string]any{},
-		"notifications": map[string]any{"enabled": false},
+		"notifications": map[string]any{"enabled": false, "supported_events": store.SupportedWebhookEvents()},
 	}
 	for _, item := range items {
 		switch item.Key {
@@ -559,12 +592,18 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		case "notification_webhook":
 			value, _ := result["notifications"].(map[string]any)
 			value["webhook_configured"] = item.Configured
+		case "notification_webhook_secret":
+			value, _ := result["notifications"].(map[string]any)
+			value["signing_secret_configured"] = item.Configured
 		}
 	}
 	if approval, ok := result["approval"].(map[string]any); ok {
 		approval["four_eyes"] = true
 		approval["required_approvals"] = 1
 		approval["supported_targets"] = []string{"secret_write", "secret_delete"}
+	}
+	if notifications, ok := result["notifications"].(map[string]any); ok {
+		notifications["supported_events"] = store.SupportedWebhookEvents()
 	}
 	writeData(w, http.StatusOK, result)
 }
@@ -583,44 +622,141 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		input["workflow"] = value
 		delete(input, "approval")
 	}
-	// Accept convenient nested secret values while persisting them separately.
-	if oidc, ok := input["oidc"]; ok {
-		if secret, ok := oidc["client_secret"].(string); ok {
-			if strings.TrimSpace(secret) != "" {
-				if err := s.store.PatchSetting(r.Context(), "oidc_client_secret", map[string]any{"value": secret}, session.User.ID); err != nil {
-					s.storeError(w, r, err)
-					return
-				}
-			}
-			delete(oidc, "client_secret")
+	// Convenient nested secret fields are encrypted separately and never echoed back.
+	type secretChange struct {
+		key   string
+		value string
+		clear bool
+	}
+	changes := make([]secretChange, 0, 4)
+	extractSecret := func(values map[string]any, field, clearField, key string) {
+		change := secretChange{key: key}
+		if value, ok := values[field].(string); ok {
+			change.value = value
 		}
+		change.clear, _ = values[clearField].(bool)
+		delete(values, field)
+		delete(values, clearField)
+		if strings.TrimSpace(change.value) != "" || change.clear {
+			changes = append(changes, change)
+		}
+	}
+	if oidc, ok := input["oidc"]; ok {
+		extractSecret(oidc, "client_secret", "clear_client_secret", "oidc_client_secret")
 	}
 	if ai, ok := input["ai"]; ok {
-		if secret, ok := ai["api_key"].(string); ok {
-			if strings.TrimSpace(secret) != "" {
-				if err := s.store.PatchSetting(r.Context(), "ai_api_key", map[string]any{"value": secret}, session.User.ID); err != nil {
-					s.storeError(w, r, err)
-					return
-				}
-			}
-			delete(ai, "api_key")
-		}
+		extractSecret(ai, "api_key", "clear_api_key", "ai_api_key")
 	}
 	if notifications, ok := input["notifications"]; ok {
-		if webhook, ok := notifications["webhook_url"].(string); ok {
-			if strings.TrimSpace(webhook) != "" {
-				if err := s.store.PatchSetting(r.Context(), "notification_webhook", map[string]any{"value": webhook}, session.User.ID); err != nil {
+		extractSecret(notifications, "webhook_url", "clear_webhook", "notification_webhook")
+		extractSecret(notifications, "signing_secret", "clear_signing_secret", "notification_webhook_secret")
+		rotateSigning, _ := notifications["rotate_signing_secret"].(bool)
+		delete(notifications, "rotate_signing_secret")
+		delete(notifications, "email_recipients") // SMTP delivery is not advertised or persisted.
+		allowInsecure, _ := notifications["allow_insecure_http"].(bool)
+		for _, change := range changes {
+			if change.key == "notification_webhook" && strings.TrimSpace(change.value) != "" {
+				if err := store.ValidateWebhookURL(strings.TrimSpace(change.value), allowInsecure); err != nil {
 					s.storeError(w, r, err)
 					return
 				}
 			}
-			delete(notifications, "webhook_url")
+		}
+		configured, err := s.store.SettingConfigured(r.Context(), "notification_webhook_secret")
+		if err != nil {
+			s.storeError(w, r, err)
+			return
+		}
+		signingProvided, signingCleared := false, false
+		for _, change := range changes {
+			if change.key == "notification_webhook_secret" {
+				signingProvided = signingProvided || strings.TrimSpace(change.value) != ""
+				signingCleared = signingCleared || change.clear
+			}
+		}
+		if !signingProvided && (rotateSigning || signingCleared || !configured) {
+			random, err := cryptox.RandomKey()
+			if err != nil {
+				s.storeError(w, r, err)
+				return
+			}
+			changes = append(changes, secretChange{key: "notification_webhook_secret", value: base64.RawURLEncoding.EncodeToString(random)})
 		}
 	}
 	for key, value := range input {
 		delete(value, "client_secret_configured")
 		delete(value, "api_key_configured")
 		delete(value, "webhook_configured")
+		delete(value, "signing_secret_configured")
+		delete(value, "supported_events")
+		if err := store.ValidateSetting(key, value); err != nil {
+			s.storeError(w, r, err)
+			return
+		}
+	}
+	if notifications, ok := input["notifications"]; ok {
+		enabled, _ := notifications["enabled"].(bool)
+		configured, err := s.store.SettingConfigured(r.Context(), "notification_webhook")
+		if err != nil {
+			s.storeError(w, r, err)
+			return
+		}
+		for _, change := range changes {
+			if change.key == "notification_webhook" {
+				if change.clear {
+					configured = false
+				}
+				if strings.TrimSpace(change.value) != "" {
+					configured = true
+				}
+			}
+		}
+		if enabled && !configured {
+			writeError(w, r, http.StatusBadRequest, "webhook_not_configured", "알림을 사용하려면 Webhook URL이 필요합니다")
+			return
+		}
+	}
+	if ai, ok := input["ai"]; ok {
+		enabled, _ := ai["enabled"].(bool)
+		authType, _ := ai["auth_type"].(string)
+		if authType == "" {
+			authType = "bearer"
+		}
+		configured, err := s.store.SettingConfigured(r.Context(), "ai_api_key")
+		if err != nil {
+			s.storeError(w, r, err)
+			return
+		}
+		for _, change := range changes {
+			if change.key == "ai_api_key" {
+				if change.clear {
+					configured = false
+				}
+				if strings.TrimSpace(change.value) != "" {
+					configured = true
+				}
+			}
+		}
+		if enabled && authType != "none" && !configured {
+			writeError(w, r, http.StatusBadRequest, "ai_api_key_required", "선택한 AI 인증 방식에는 API Key가 필요합니다")
+			return
+		}
+	}
+	for _, change := range changes {
+		if change.clear {
+			if err := s.store.DeleteSetting(r.Context(), change.key); err != nil {
+				s.storeError(w, r, err)
+				return
+			}
+		}
+		if strings.TrimSpace(change.value) != "" {
+			if err := s.store.PutSetting(r.Context(), change.key, map[string]any{"value": change.value}, session.User.ID); err != nil {
+				s.storeError(w, r, err)
+				return
+			}
+		}
+	}
+	for key, value := range input {
 		if err := s.store.PatchSetting(r.Context(), key, value, session.User.ID); err != nil {
 			s.storeError(w, r, err)
 			return

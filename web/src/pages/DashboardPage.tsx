@@ -1,6 +1,6 @@
 import { ActionIcon, Alert, Badge, Box, Button, Card, Group, Progress, RingProgress, SimpleGrid, Stack, Table, Text, ThemeIcon, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, AlertTriangle, AppWindow, ArrowRight, CheckCircle2, Clock3, KeyRound, RefreshCw, ShieldCheck, Users } from 'lucide-react';
+import { Activity, AlertTriangle, AppWindow, ArrowRight, Clock3, FileKey2, KeyRound, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { get } from '../lib/api';
 import { formatDate, formatNumber } from '../lib/format';
@@ -10,20 +10,23 @@ import { PageHeader } from '../components/PageHeader';
 import { StatusBadge } from '../components/StatusBadge';
 import { useAuth } from '../contexts/AuthContext';
 
+interface PublicApprovalSettings {
+  approval_enabled?: boolean;
+  reviewer_role?: string;
+}
+
 export function DashboardPage() {
   const { user } = useAuth();
   const canManage = user?.role === 'admin' || user?.role === 'manager';
   const canAudit = canManage || user?.role === 'auditor';
   const navigate = useNavigate();
   const query = useQuery({ queryKey: ['dashboard'], queryFn: () => get<DashboardData>('/dashboard') });
+  const publicSettings = useQuery({ queryKey: ['public-settings'], queryFn: () => get<PublicApprovalSettings>('/settings/public'), retry: false });
   if (query.isLoading) return <PageLoading label="보안 현황을 계산하고 있습니다." />;
   if (query.isError) return <PageError error={query.error} onRetry={() => void query.refetch()} />;
-  const raw = (query.data || {}) as DashboardData & { high_risk_secrets?: number; policies?: number };
+  const raw = query.data || {};
   const data: DashboardData = {
     ...raw,
-    high_risk: raw.high_risk ?? raw.high_risk_secrets ?? 0,
-    keys: raw.keys ?? 0,
-    security_score: raw.security_score ?? Math.max(0, 100 - (raw.high_risk_secrets || 0) * 3),
     recent_audit: (raw.recent_audit || []).map((event) => ({
       ...event,
       id: String(event.id),
@@ -34,6 +37,9 @@ export function DashboardPage() {
     })),
   };
   const score = Math.min(100, Math.max(0, data.security_score ?? 0));
+  const approvalEnabled = publicSettings.data?.approval_enabled === true;
+  const reviewerRole = publicSettings.data?.reviewer_role || 'admin';
+  const canReview = user?.role === 'admin' || (reviewerRole === 'manager' && user?.role === 'manager');
   const metrics = [
     { label: '관리 시크릿', value: data.secrets, detail: '암호화 저장된 전체 항목', icon: KeyRound, color: '#11b5ae', path: '/secrets' },
     { label: '애플리케이션', value: data.applications, detail: '시크릿 연결 서비스', icon: AppWindow, color: '#4d7cfe', path: '/applications' },
@@ -42,8 +48,8 @@ export function DashboardPage() {
   ];
   return (
     <>
-      <PageHeader eyebrow="Security overview" title="보안 현황" description="시크릿 수명주기, 키 상태와 접근 이벤트를 한눈에 확인하세요." actions={<><ActionIcon variant="default" size="lg" aria-label="새로 고침" onClick={() => void query.refetch()}><RefreshCw size={18} /></ActionIcon>{user?.role !== 'auditor' && <Button rightSection={<ArrowRight size={18} />} onClick={() => navigate('/secrets/new')}>시크릿 만들기</Button>}</>} />
-      {(data.high_risk || data.rotation_failed) ? <Alert mb="lg" color="orange" icon={<AlertTriangle size={20} />} title="확인이 필요한 보안 항목이 있습니다."><Group gap="xl"><Text>고위험 시크릿 <b>{formatNumber(data.high_risk)}</b>개</Text><Text>회전 실패 <b>{formatNumber(data.rotation_failed)}</b>건</Text><Button size="xs" variant="light" color="orange" onClick={() => navigate('/secrets/risk')}>위험 검토</Button></Group></Alert> : null}
+      <PageHeader eyebrow="Security overview" title="보안 현황" description="시크릿 수명주기, 키 상태와 접근 이벤트를 한눈에 확인하세요." actions={<><ActionIcon variant="default" size="lg" aria-label="새로 고침" onClick={() => void query.refetch()}><RefreshCw size={18} /></ActionIcon>{canManage && <Button rightSection={<ArrowRight size={18} />} onClick={() => navigate('/secrets/new')}>시크릿 만들기</Button>}</>} />
+      {(data.high_risk_secrets || data.attention_secrets) ? <Alert mb="lg" color="orange" icon={<AlertTriangle size={20} />} title="확인이 필요한 보안 항목이 있습니다."><Group gap="xl"><Text>주의 시크릿 <b>{formatNumber(data.attention_secrets)}</b>개</Text><Text>고위험 시크릿 <b>{formatNumber(data.high_risk_secrets)}</b>개</Text><Button size="xs" variant="light" color="orange" onClick={() => navigate('/secrets/risk')}>위험 검토</Button></Group></Alert> : null}
       <SimpleGrid cols={{ base: 1, xs: 2, xl: 4 }} spacing="lg" mb="lg">
         {metrics.map((item) => { const Icon = item.icon; return (
           <Card key={item.label} className="surface metric-card" radius="lg" p="lg" style={{ '--accent': item.color } as React.CSSProperties} onClick={() => navigate(item.path)} role="button" tabIndex={0}>
@@ -59,13 +65,12 @@ export function DashboardPage() {
           <Button variant="light" fullWidth mt="md" onClick={() => navigate('/secrets/risk')}>개선 항목 보기</Button>
         </Card>
         <Card className="surface span-two" radius="lg" p="xl">
-          <Group justify="space-between" mb="xl"><Box><Text fw={800} size="lg">시크릿 건강도</Text><Text size="sm" c="dimmed">회전·만료·위험 상태를 종합한 분포</Text></Box><Activity size={22} color="#11b5ae" /></Group>
+          <Group justify="space-between" mb="xl"><Box><Text fw={800} size="lg">시크릿 건강도</Text><Text size="sm" c="dimmed">서버가 계산한 위험 점수 구간별 분포</Text></Box><Activity size={22} color="#11b5ae" /></Group>
           <Stack gap="lg">
             {[
-              { label: '정상', value: Math.max(0, 100 - ((data.high_risk || 0) + (data.expiring || 0) + (data.rotation_failed || 0))), color: 'teal', detail: '정책에 맞게 관리 중' },
-              { label: '회전 필요', value: data.high_risk || 0, color: 'orange', detail: '오래되었거나 위험 점수 높음' },
-              { label: '만료 예정', value: data.expiring || 0, color: 'yellow', detail: '30일 이내 만료' },
-              { label: '회전 실패', value: data.rotation_failed || 0, color: 'red', detail: '자동 회전 복구 필요' },
+              { label: '정상', value: data.healthy_secrets || 0, color: 'teal', detail: '위험 점수 0~30' },
+              { label: '주의', value: data.attention_secrets || 0, color: 'yellow', detail: '위험 점수 31~60' },
+              { label: '고위험', value: data.high_risk_secrets || 0, color: 'red', detail: '위험 점수 61~100' },
             ].map((row) => {
               const total = Math.max(1, (data.secrets || 0)); const percent = Math.min(100, Math.round(row.value / total * 100));
               return <Box key={row.label}><Group justify="space-between" mb={7}><Box><Text fw={700}>{row.label}</Text><Text size="xs" c="dimmed">{row.detail}</Text></Box><Group gap="xs"><Text fw={800}>{formatNumber(row.value)}</Text><Text size="sm" c="dimmed">({percent}%)</Text></Group></Group><Progress value={percent} color={row.color} size="lg" radius="xl" /></Box>;
@@ -82,8 +87,8 @@ export function DashboardPage() {
           </Table.Tbody></Table></Table.ScrollContainer>
         </Card>
         <Stack gap="lg">
-          <Card className="surface" radius="lg" p="lg"><Group justify="space-between"><ThemeIcon color="yellow" variant="light" size={42}><Clock3 size={21} /></ThemeIcon><Text fz={28} fw={850}>{formatNumber(data.pending_approvals)}</Text></Group><Text fw={750} mt="md">승인 대기</Text><Text size="sm" c="dimmed">설정된 검토가 필요한 요청</Text>{(data.pending_approvals || 0) > 0 && <Button fullWidth variant="light" mt="md" onClick={() => navigate('/approvals')}>검토하기</Button>}</Card>
-          <Card className="surface" radius="lg" p="lg"><Group gap="sm"><ThemeIcon color="teal" variant="light"><CheckCircle2 size={19} /></ThemeIcon><Text fw={750}>서비스 준비 상태</Text></Group><Text fz={23} fw={850} mt="lg" c="teal.8">정상 운영 중</Text><Text size="sm" c="dimmed" mt={4}>PostgreSQL·암호화 엔진 연결됨</Text></Card>
+          {approvalEnabled && <Card className="surface" radius="lg" p="lg"><Group justify="space-between"><ThemeIcon color="yellow" variant="light" size={42}><Clock3 size={21} /></ThemeIcon><Text fz={28} fw={850}>{formatNumber(data.pending_approvals)}</Text></Group><Text fw={750} mt="md">{canReview ? '검토 대기' : '내 요청 대기'}</Text><Text size="sm" c="dimmed">{canReview ? '내 역할이 검토할 수 있는 요청' : '내가 요청한 작업 중 처리 대기'}</Text>{(data.pending_approvals || 0) > 0 && <Button fullWidth variant="light" mt="md" onClick={() => navigate('/approvals')}>{canReview ? '검토하기' : '요청 확인'}</Button>}</Card>}
+          <Card className="surface" radius="lg" p="lg"><Group justify="space-between"><ThemeIcon color="blue" variant="light" size={42}><FileKey2 size={21} /></ThemeIcon><Text fz={28} fw={850}>{formatNumber(data.policies)}</Text></Group><Text fw={750} mt="md">접근 정책</Text><Text size="sm" c="dimmed">서버에 저장된 경로 정책</Text>{canAudit && <Button fullWidth variant="light" mt="md" onClick={() => navigate('/access/policies')}>정책 보기</Button>}</Card>
         </Stack>
       </SimpleGrid>
     </>

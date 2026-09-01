@@ -67,9 +67,13 @@ func (s *Store) Dashboard(ctx context.Context) (model.Dashboard, error) {
 		(SELECT count(*) FROM policies),
 		((SELECT count(*) FROM user_keys WHERE active=true) + (SELECT count(*) FROM transit_keys)),
 		(SELECT count(*) FROM approval_requests WHERE status='pending'),
-        (SELECT count(*) FROM secrets WHERE deleted_at IS NULL AND risk_score>=61)`).Scan(
+        (SELECT count(*) FROM secrets WHERE deleted_at IS NULL AND risk_score>=61),
+		(SELECT count(*) FROM secrets WHERE deleted_at IS NULL AND risk_score<31),
+		(SELECT count(*) FROM secrets WHERE deleted_at IS NULL AND risk_score BETWEEN 31 AND 60),
+		(SELECT (100-COALESCE(round(avg(risk_score)),0))::int FROM secrets WHERE deleted_at IS NULL)`).Scan(
 		&dashboard.Secrets, &dashboard.Applications, &dashboard.Users, &dashboard.Policies,
-		&dashboard.Keys, &dashboard.PendingApprovals, &dashboard.HighRiskSecrets)
+		&dashboard.Keys, &dashboard.PendingApprovals, &dashboard.HighRiskSecrets,
+		&dashboard.HealthySecrets, &dashboard.AttentionSecrets, &dashboard.SecurityScore)
 	if err != nil {
 		return model.Dashboard{}, err
 	}
@@ -79,4 +83,55 @@ func (s *Store) Dashboard(ctx context.Context) (model.Dashboard, error) {
 	}
 	dashboard.RecentAudit = recent
 	return dashboard, nil
+}
+
+// UserDashboard returns only inventory that the user can discover with the
+// list capability. Global user, policy and key counts must not leak through a
+// dashboard endpoint that is available to every authenticated account.
+func (s *Store) UserDashboard(ctx context.Context, userID string) (model.Dashboard, error) {
+	var dashboard model.Dashboard
+	err := s.pool.QueryRow(ctx, `WITH visible AS (
+		SELECT s.risk_score,s.application_id FROM secrets s
+		WHERE s.deleted_at IS NULL AND EXISTS (
+			SELECT 1 FROM user_policies up JOIN policies p ON p.id=up.policy_id
+			CROSS JOIN LATERAL jsonb_array_elements(
+				CASE WHEN jsonb_typeof(p.rules->'paths')='array' THEN p.rules->'paths' ELSE '[]'::jsonb END
+			) AS policy_rule
+			WHERE up.user_id=$1
+			AND COALESCE(policy_rule->'capabilities','[]'::jsonb) ? 'list'
+			AND (
+				trim(both '/' from policy_rule->>'path')='*'
+				OR (right(trim(both '/' from policy_rule->>'path'),1)='*'
+					AND left(s.path,length(trim(both '/' from policy_rule->>'path'))-1)=
+						left(trim(both '/' from policy_rule->>'path'),length(trim(both '/' from policy_rule->>'path'))-1))
+				OR s.path=trim(both '/' from policy_rule->>'path')
+			)
+		)
+	)
+	SELECT
+		(SELECT count(*) FROM visible),
+		(SELECT count(DISTINCT application_id) FROM visible WHERE application_id IS NOT NULL),
+		1,
+		(SELECT count(*) FROM user_policies WHERE user_id=$1),
+		(SELECT count(*) FROM user_keys WHERE user_id=$1 AND active=true),
+		0,
+		(SELECT count(*) FROM visible WHERE risk_score>=61),
+		(SELECT count(*) FROM visible WHERE risk_score<31),
+		(SELECT count(*) FROM visible WHERE risk_score BETWEEN 31 AND 60),
+		(SELECT (100-COALESCE(round(avg(risk_score)),0))::int FROM visible)`, userID).Scan(
+		&dashboard.Secrets, &dashboard.Applications, &dashboard.Users, &dashboard.Policies,
+		&dashboard.Keys, &dashboard.PendingApprovals, &dashboard.HighRiskSecrets,
+		&dashboard.HealthySecrets, &dashboard.AttentionSecrets, &dashboard.SecurityScore)
+	if err != nil {
+		return model.Dashboard{}, err
+	}
+	dashboard.RecentAudit = []model.AuditEvent{}
+	return dashboard, nil
+}
+
+func (s *Store) CountPendingApprovalsForUser(ctx context.Context, userID string) (int64, error) {
+	var count int64
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM approval_requests
+		WHERE status='pending' AND requester_id=$1`, userID).Scan(&count)
+	return count, err
 }

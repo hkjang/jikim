@@ -144,7 +144,14 @@ export function AppLayout() {
     && item.label.toLowerCase().includes(query.toLowerCase())
   )).slice(0, 9), [publicSettings.data?.approval_enabled, query, user?.role]);
 
-  const doLogout = async () => { await logout(); navigate('/login', { replace: true }); };
+  const doLogout = async () => {
+    if (user?.auth_source === 'oidc') {
+      window.location.assign('/api/v1/oidc/logout');
+      return;
+    }
+    await logout();
+    navigate('/login', { replace: true });
+  };
   return (
     <AppShell
       className="app-shell"

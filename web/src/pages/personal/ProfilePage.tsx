@@ -28,7 +28,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { get, patch, post } from '../../lib/api';
-import { APP_VERSION, formatDate, statusLabel } from '../../lib/format';
+import { APP_VERSION, authSourceLabel, formatDate, statusLabel } from '../../lib/format';
 import type { User } from '../../lib/types';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -82,6 +82,7 @@ function ProfileForm({ initialUser }: { initialUser: User }) {
     confirm_password: '',
   });
   const [passwordValidation, setPasswordValidation] = useState<string | null>(null);
+  const isLocalAccount = initialUser.auth_source === 'local';
 
   const profileMutation = useMutation({
     mutationFn: () => patch<User>('/me', {
@@ -139,7 +140,7 @@ function ProfileForm({ initialUser }: { initialUser: User }) {
     <Stack gap="lg">
       <Box>
         <Title order={1} className="page-title">내 프로필</Title>
-        <Text c="dimmed" mt={6}>계정 정보와 로컬 로그인 비밀번호를 안전하게 관리합니다.</Text>
+        <Text c="dimmed" mt={6}>계정 정보와 로그인 인증 방식을 안전하게 관리합니다.</Text>
       </Box>
 
       <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg" style={{ alignItems: 'start' }}>
@@ -195,51 +196,68 @@ function ProfileForm({ initialUser }: { initialUser: User }) {
         </Paper>
 
         <Stack gap="lg">
-          <Paper component="form" onSubmit={submitPassword} className="surface" p={{ base: 'md', sm: 'xl' }} radius="lg">
-            <Stack gap="lg">
-              <Group align="flex-start" wrap="nowrap">
-                <ThemeIcon size="lg" color="orange" variant="light" aria-hidden="true"><LockKeyhole size={20} /></ThemeIcon>
-                <Box>
-                  <Title order={2} size="h3">비밀번호 변경</Title>
-                  <Text c="dimmed" mt={3}>로컬 로그인 계정에만 적용됩니다.</Text>
-                </Box>
-              </Group>
+          {isLocalAccount ? (
+            <Paper component="form" onSubmit={submitPassword} className="surface" p={{ base: 'md', sm: 'xl' }} radius="lg">
+              <Stack gap="lg">
+                <Group align="flex-start" wrap="nowrap">
+                  <ThemeIcon size="lg" color="orange" variant="light" aria-hidden="true"><LockKeyhole size={20} /></ThemeIcon>
+                  <Box>
+                    <Title order={2} size="h3">비밀번호 변경</Title>
+                    <Text c="dimmed" mt={3}>이 로컬 로그인 계정의 비밀번호를 변경합니다.</Text>
+                  </Box>
+                </Group>
 
-              {(passwordValidation || passwordMutation.isError) && (
-                <Alert icon={<CircleAlert size={18} />} color="red" title="비밀번호를 변경할 수 없습니다" role="alert">
-                  {passwordValidation || errorMessage(passwordMutation.error)}
+                {(passwordValidation || passwordMutation.isError) && (
+                  <Alert icon={<CircleAlert size={18} />} color="red" title="비밀번호를 변경할 수 없습니다" role="alert">
+                    {passwordValidation || errorMessage(passwordMutation.error)}
+                  </Alert>
+                )}
+
+                <PasswordInput
+                  label="현재 비밀번호"
+                  autoComplete="current-password"
+                  required
+                  value={password.current_password}
+                  onChange={(event) => setPassword((current) => ({ ...current, current_password: event.currentTarget.value }))}
+                />
+                <PasswordInput
+                  label="새 비밀번호"
+                  description="12자 이상이며 현재 비밀번호와 달라야 합니다."
+                  autoComplete="new-password"
+                  required
+                  value={password.new_password}
+                  onChange={(event) => setPassword((current) => ({ ...current, new_password: event.currentTarget.value }))}
+                />
+                <PasswordInput
+                  label="새 비밀번호 확인"
+                  autoComplete="new-password"
+                  required
+                  value={password.confirm_password}
+                  onChange={(event) => setPassword((current) => ({ ...current, confirm_password: event.currentTarget.value }))}
+                />
+                <Group justify="flex-end">
+                  <Button type="submit" color="orange" leftSection={<KeyRound size={17} />} loading={passwordMutation.isPending}>
+                    비밀번호 변경
+                  </Button>
+                </Group>
+              </Stack>
+            </Paper>
+          ) : (
+            <Paper className="surface" p={{ base: 'md', sm: 'xl' }} radius="lg">
+              <Stack gap="lg">
+                <Group align="flex-start" wrap="nowrap">
+                  <ThemeIcon size="lg" color="blue" variant="light" aria-hidden="true"><LockKeyhole size={20} /></ThemeIcon>
+                  <Box>
+                    <Title order={2} size="h3">SSO 인증 계정</Title>
+                    <Text c="dimmed" mt={3}>{authSourceLabel(initialUser.auth_source)}에서 로그인 자격 증명을 관리합니다.</Text>
+                  </Box>
+                </Group>
+                <Alert color="blue" title="로컬 비밀번호를 사용하지 않습니다">
+                  비밀번호 변경과 복구는 연결된 Keycloak 계정에서 진행하세요. Jikim은 이 계정의 로컬 비밀번호를 저장하거나 변경하지 않습니다.
                 </Alert>
-              )}
-
-              <PasswordInput
-                label="현재 비밀번호"
-                autoComplete="current-password"
-                required
-                value={password.current_password}
-                onChange={(event) => setPassword((current) => ({ ...current, current_password: event.currentTarget.value }))}
-              />
-              <PasswordInput
-                label="새 비밀번호"
-                description="12자 이상이며 현재 비밀번호와 달라야 합니다."
-                autoComplete="new-password"
-                required
-                value={password.new_password}
-                onChange={(event) => setPassword((current) => ({ ...current, new_password: event.currentTarget.value }))}
-              />
-              <PasswordInput
-                label="새 비밀번호 확인"
-                autoComplete="new-password"
-                required
-                value={password.confirm_password}
-                onChange={(event) => setPassword((current) => ({ ...current, confirm_password: event.currentTarget.value }))}
-              />
-              <Group justify="flex-end">
-                <Button type="submit" color="orange" leftSection={<KeyRound size={17} />} loading={passwordMutation.isPending}>
-                  비밀번호 변경
-                </Button>
-              </Group>
-            </Stack>
-          </Paper>
+              </Stack>
+            </Paper>
+          )}
 
           <Paper className="surface" p={{ base: 'md', sm: 'xl' }} radius="lg">
             <Stack gap="md">
@@ -257,6 +275,10 @@ function ProfileForm({ initialUser }: { initialUser: User }) {
               <Group justify="space-between">
                 <Text c="dimmed">Jikim 버전</Text>
                 <Text fw={750} ff="monospace">{APP_VERSION}</Text>
+              </Group>
+              <Group justify="space-between">
+                <Text c="dimmed">인증 방식</Text>
+                <Text fw={650}>{authSourceLabel(initialUser.auth_source)}</Text>
               </Group>
               <Group justify="space-between" align="flex-start">
                 <Text c="dimmed">사용자 ID</Text>
