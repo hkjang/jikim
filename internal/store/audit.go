@@ -23,7 +23,7 @@ func (s *Store) RecordAudit(ctx context.Context, event model.AuditEvent) error {
 }
 
 func (s *Store) ListAudit(ctx context.Context, query, result string, limit, offset int) ([]model.AuditEvent, error) {
-	search := "%" + strings.ToLower(strings.TrimSpace(query)) + "%"
+	search := "%" + escapeLike(strings.ToLower(strings.TrimSpace(query))) + "%"
 	rows, err := s.pool.Query(ctx, `SELECT id,request_id,user_id,username,action,resource,method,path,
 		status_code,success,remote_ip,user_agent,details,created_at FROM audit_logs
 		WHERE ($1='' OR lower(username) LIKE $2 OR lower(action) LIKE $2 OR lower(resource) LIKE $2)
