@@ -195,3 +195,14 @@ func marshalJSON(value any) ([]byte, error) {
 	}
 	return json.Marshal(value)
 }
+
+// likeEscaper neutralises LIKE metacharacters so caller supplied text is matched
+// literally. PostgreSQL의 LIKE 기본 escape 문자는 backslash이므로 별도의 ESCAPE 절이 없어도
+// 아래 치환만으로 `%`, `_`가 와일드카드로 해석되지 않습니다.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// escapeLike wraps caller supplied text for a contains match without letting it
+// widen the pattern.
+func escapeLike(value string) string {
+	return likeEscaper.Replace(value)
+}

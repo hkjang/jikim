@@ -300,6 +300,24 @@ func TestOpenBaoKVLifecycleIntegration(t *testing.T) {
 		personalDashboard.RecentAudit == nil {
 		t.Fatalf("personal dashboard leaked or omitted scoped inventory: %#v", personalDashboard)
 	}
+
+	// `_`는 LIKE 와일드카드이므로 이스케이프하지 않으면 이웃 prefix의 key가 함께 나열됩니다.
+	listPrefix := "kvlike_" + suffix
+	neighborPrefix := "kvlikeX" + suffix
+	for _, full := range []string{listPrefix + "/mine", neighborPrefix + "/theirs"} {
+		if _, err := st.PutSecret(ctx, model.SecretWrite{
+			Path: full, Data: map[string]any{"value": "x"},
+		}, admin.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	children, err := st.ListSecretChildren(ctx, listPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(children) != 1 || children[0] != "mine" {
+		t.Fatalf("LIST leaked keys from a neighbouring prefix: %#v", children)
+	}
 }
 
 func integrationVersion(metadata OpenBaoKVMetadata, version int) (OpenBaoKVVersion, bool) {

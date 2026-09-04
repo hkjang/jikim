@@ -424,7 +424,7 @@ func (s *Store) listSecretsFiltered(ctx context.Context, user *model.User, searc
 	if user != nil {
 		userID, role = user.ID, user.Role
 	}
-	like := "%" + strings.ToLower(strings.TrimSpace(search)) + "%"
+	like := "%" + escapeLike(strings.ToLower(strings.TrimSpace(search))) + "%"
 	rows, err := s.pool.Query(ctx, `SELECT s.id,s.path,s.description,s.application_id,s.owner_user_id,s.tags,
 		s.risk_score,s.current_version,s.created_at,s.updated_at,
 		COALESCE(a.name,sv.metadata->>'application',''),COALESCE(sv.metadata->>'environment',a.environment,''),
@@ -697,11 +697,8 @@ func normalizeOpenBaoVersions(versions []int) ([]int, error) {
 
 func (s *Store) ListSecretChildren(ctx context.Context, prefix string) ([]string, error) {
 	prefix = strings.Trim(prefix, "/")
-	like := "%"
-	if prefix != "" {
-		like = prefix + "/%"
-	}
-	rows, err := s.pool.Query(ctx, `SELECT path FROM secrets WHERE deleted_at IS NULL AND path LIKE $1 ORDER BY path`, like)
+	rows, err := s.pool.Query(ctx, `SELECT path FROM secrets WHERE deleted_at IS NULL AND path LIKE $1 ORDER BY path`,
+		secretChildrenPattern(prefix))
 	if err != nil {
 		return nil, err
 	}
@@ -729,6 +726,16 @@ func (s *Store) ListSecretChildren(ctx context.Context, prefix string) ([]string
 	}
 	sort.Strings(keys)
 	return keys, rows.Err()
+}
+
+// secretChildrenPattern builds the LIKE pattern that selects every path stored
+// below prefix. prefix는 호출자가 지정한 값이므로 와일드카드를 이스케이프해 다른 prefix의
+// key가 섞이지 않게 합니다.
+func secretChildrenPattern(prefix string) string {
+	if prefix == "" {
+		return "%"
+	}
+	return escapeLike(prefix) + "/%"
 }
 
 func mustJSON(value any) []byte {

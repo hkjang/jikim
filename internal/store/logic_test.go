@@ -40,3 +40,32 @@ func TestRiskScoreDoesNotInspectValues(t *testing.T) {
 		t.Fatalf("risk score = %d, want 65", score)
 	}
 }
+
+func TestEscapeLikeNeutralisesWildcards(t *testing.T) {
+	tests := []struct{ value, want string }{
+		{"prod/payment", "prod/payment"},
+		{"app_1", `app\_1`},
+		{"100%", `100\%`},
+		{`back\slash`, `back\\slash`},
+		{`%_\`, `\%\_\\`},
+	}
+	for _, test := range tests {
+		if got := escapeLike(test.value); got != test.want {
+			t.Errorf("escapeLike(%q)=%q want %q", test.value, got, test.want)
+		}
+	}
+}
+
+func TestSecretChildrenPatternScopesToPrefix(t *testing.T) {
+	tests := []struct{ prefix, want string }{
+		{"", "%"},
+		{"prod", "prod/%"},
+		{"app_1", `app\_1/%`},
+		{"%", `\%/%`},
+	}
+	for _, test := range tests {
+		if got := secretChildrenPattern(test.prefix); got != test.want {
+			t.Errorf("secretChildrenPattern(%q)=%q want %q", test.prefix, got, test.want)
+		}
+	}
+}

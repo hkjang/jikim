@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 수정
+
+- `LIST /v1/secret/metadata/{prefix}`가 `_`나 `%`를 포함한 prefix에서 이웃 prefix의 key 이름까지 반환하던 오류 수정. prefix와 검색어를 SQL `LIKE` 패턴에 넣기 전에 와일드카드를 이스케이프하도록 변경했으며 Secret·감사 로그 검색도 이제 `_`와 `%`를 문자 그대로 대조합니다
+
 ### 계획
 
 - OpenBao differential 호환성 비교 테스트 범위 확대
