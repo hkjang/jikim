@@ -4,14 +4,16 @@
 
 ## [Unreleased]
 
-### 수정
-
-- `LIST /v1/secret/metadata/{prefix}`가 `_`나 `%`를 포함한 prefix에서 이웃 prefix의 key 이름까지 반환하던 오류 수정. prefix와 검색어를 SQL `LIKE` 패턴에 넣기 전에 와일드카드를 이스케이프하도록 변경했으며 Secret·감사 로그 검색도 이제 `_`와 `%`를 문자 그대로 대조합니다
-
 ### 계획
 
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
+
+## [0.2.2] - 2026-09-05
+
+### 수정
+
+- `LIST /v1/secret/metadata/{prefix}`가 `_`나 `%`를 포함한 prefix에서 이웃 prefix의 key 이름까지 반환하던 오류 수정. prefix와 검색어를 SQL `LIKE` 패턴에 넣기 전에 와일드카드를 이스케이프하도록 변경했으며 Secret·감사 로그 검색도 이제 `_`와 `%`를 문자 그대로 대조합니다
 
 ## [0.2.1] - 2026-09-04
 
@@ -108,7 +110,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/hkjang/jikim/releases/tag/v0.2.2
 [0.2.1]: https://github.com/hkjang/jikim/releases/tag/v0.2.1
 [0.2.0]: https://github.com/hkjang/jikim/releases/tag/v0.2.0
 [0.1.0]: https://github.com/hkjang/jikim/releases/tag/v0.1.0
