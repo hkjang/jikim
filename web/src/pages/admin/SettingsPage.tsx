@@ -381,6 +381,17 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
   const [saveValidation, setSaveValidation] = useState<string | null>(null);
   const redirectUrl = `${window.location.origin}/api/v1/oidc/callback`;
 
+  // Build the patch in the event handler itself. React clears the synthetic
+  // event's currentTarget as soon as the handler returns, so reading it inside
+  // the setState updater throws once React defers that updater to the render
+  // phase (which it does as soon as another update is already pending).
+  const updateGeneral = (patch: Partial<GeneralSettings>) => setSettings((current) => ({ ...current, general: { ...current.general, ...patch } }));
+  const updateApproval = (patch: Partial<ApprovalSettings>) => setSettings((current) => ({ ...current, approval: { ...current.approval, ...patch } }));
+  const updateOidc = (patch: Partial<OidcSettings>) => setSettings((current) => ({ ...current, oidc: { ...current.oidc, ...patch } }));
+  const updateAi = (patch: Partial<AiSettings>) => setSettings((current) => ({ ...current, ai: { ...current.ai, ...patch } }));
+  const updateSecurity = (patch: Partial<SecuritySettings>) => setSettings((current) => ({ ...current, security: { ...current.security, ...patch } }));
+  const updateNotifications = (patch: Partial<NotificationSettings>) => setSettings((current) => ({ ...current, notifications: { ...current.notifications, ...patch } }));
+
   const saveMutation = useMutation({
     mutationFn: () => patch<unknown>('/settings', settingsPayload(settings, redirectUrl)),
     onSuccess: async () => {
@@ -562,10 +573,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     required
                     readOnly
                     value={settings.general.service_name}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      general: { ...current.general, service_name: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateGeneral({ service_name: event.currentTarget.value })}
                   />
                   <Select
                     label="기본 언어"
@@ -573,10 +581,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     data={[{ value: 'ko', label: '한국어' }]}
                     disabled
                     value={settings.general.default_language}
-                    onChange={(value) => setSettings((current) => ({
-                      ...current,
-                      general: { ...current.general, default_language: value || 'ko' },
-                    }))}
+                    onChange={(value) => updateGeneral({ default_language: value || 'ko' })}
                   />
                   <TextInput
                     label="표준 시간대"
@@ -584,10 +589,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     placeholder="Asia/Seoul"
                     readOnly
                     value={settings.general.timezone}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      general: { ...current.general, timezone: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateGeneral({ timezone: event.currentTarget.value })}
                   />
                 </SimpleGrid>
 
@@ -623,10 +625,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 <Switch
                   size="md"
                   checked={settings.approval.enabled}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    approval: { ...current.approval, enabled: event.currentTarget.checked },
-                  }))}
+                  onChange={(event) => updateApproval({ enabled: event.currentTarget.checked })}
                   label="검토·승인 워크플로 사용"
                   description="끄면 신규 작업은 승인 상태를 만들지 않고 즉시 실행되며 관련 프로세스가 사용자 화면에서 제외됩니다."
                 />
@@ -649,10 +648,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                           { value: 'admin', label: '서비스 관리자' },
                         ]}
                         value={settings.approval.reviewer_role}
-                        onChange={(value) => setSettings((current) => ({
-                          ...current,
-                          approval: { ...current.approval, reviewer_role: value || 'manager' },
-                        }))}
+                        onChange={(value) => updateApproval({ reviewer_role: value || 'manager' })}
                       />
                       <NumberInput
                         label="필수 승인 수"
@@ -662,10 +658,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                         disabled
                         clampBehavior="strict"
                         value={settings.approval.required_approvals}
-                        onChange={(value) => setSettings((current) => ({
-                          ...current,
-                          approval: { ...current.approval, required_approvals: typeof value === 'number' ? value : 1 },
-                        }))}
+                        onChange={(value) => updateApproval({ required_approvals: typeof value === 'number' ? value : 1 })}
                       />
                     </SimpleGrid>
                     <Switch
@@ -678,10 +671,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                       label="승인 적용 작업"
                       description="선택한 작업만 승인 대기 상태로 전환합니다."
                       value={settings.approval.targets}
-                      onChange={(targets) => setSettings((current) => ({
-                        ...current,
-                        approval: { ...current.approval, targets },
-                      }))}
+                      onChange={(targets) => updateApproval({ targets })}
                     >
                       <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
                         {approvalTargets.map((target) => <Checkbox key={target.value} value={target.value} label={target.label} />)}
@@ -698,10 +688,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 <Switch
                   size="md"
                   checked={settings.oidc.enabled}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    oidc: { ...current.oidc, enabled: event.currentTarget.checked },
-                  }))}
+                  onChange={(event) => updateOidc({ enabled: event.currentTarget.checked })}
                   label="Keycloak SSO 사용"
                   description="연결 테스트와 저장을 완료한 뒤 로그인 화면에 SSO가 표시됩니다."
                 />
@@ -715,7 +702,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     value={settings.oidc.issuer_url}
                     onChange={(event) => {
                       setOidcResult(null);
-                      setSettings((current) => ({ ...current, oidc: { ...current.oidc, issuer_url: event.currentTarget.value } }));
+                      updateOidc({ issuer_url: event.currentTarget.value });
                     }}
                   />
                   <TextInput
@@ -723,10 +710,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     required={settings.oidc.enabled}
                     autoComplete="off"
                     value={settings.oidc.client_id}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      oidc: { ...current.oidc, client_id: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateOidc({ client_id: event.currentTarget.value })}
                   />
                   <PasswordInput
                     label="Client Secret"
@@ -734,52 +718,34 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     placeholder={settings.oidc.client_secret_configured ? '•••••••••••• (설정됨)' : 'Client Secret 입력'}
                     autoComplete="new-password"
                     value={settings.oidc.client_secret}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      oidc: { ...current.oidc, client_secret: event.currentTarget.value, clear_client_secret: false },
-                    }))}
+                    onChange={(event) => updateOidc({ client_secret: event.currentTarget.value, clear_client_secret: false })}
                   />
                   <TextInput label="Callback URL" description="Keycloak client의 Valid redirect URI에 이 절대 URL을 등록하세요." value={redirectUrl} readOnly />
                   <TextInput
                     label="Scopes"
                     description="공백으로 구분합니다."
                     value={settings.oidc.scopes}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      oidc: { ...current.oidc, scopes: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateOidc({ scopes: event.currentTarget.value })}
                   />
                   <TextInput
                     label="사용자명 Claim"
                     value={settings.oidc.username_claim}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      oidc: { ...current.oidc, username_claim: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateOidc({ username_claim: event.currentTarget.value })}
                   />
                   <TextInput
                     label="그룹 Claim"
                     value={settings.oidc.group_claim}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      oidc: { ...current.oidc, group_claim: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateOidc({ group_claim: event.currentTarget.value })}
                   />
                   <TextInput
                     label="역할 Claim"
                     value={settings.oidc.role_claim}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      oidc: { ...current.oidc, role_claim: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateOidc({ role_claim: event.currentTarget.value })}
                   />
                 </SimpleGrid>
                 <Switch
                   checked={settings.oidc.allow_insecure_http}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    oidc: { ...current.oidc, allow_insecure_http: event.currentTarget.checked },
-                  }))}
+                  onChange={(event) => updateOidc({ allow_insecure_http: event.currentTarget.checked })}
                   label="OIDC 내부 HTTP 허용"
                   description="기본값은 OFF입니다. TLS를 적용할 수 없는 신뢰된 내부 개발망에서만 사용하세요."
                 />
@@ -807,7 +773,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                       onClick={() => {
                         if (!window.confirm('저장된 OIDC Client Secret을 삭제할까요? 비밀 클라이언트는 삭제 후 로그인할 수 없습니다.')) return;
                         setOidcResult(null);
-                        setSettings((current) => ({ ...current, oidc: { ...current.oidc, client_secret: '', clear_client_secret: true } }));
+                        updateOidc({ client_secret: '', clear_client_secret: true });
                       }}
                     >
                       Client Secret 삭제
@@ -838,10 +804,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 <Switch
                   size="md"
                   checked={settings.ai.enabled}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    ai: { ...current.ai, enabled: event.currentTarget.checked },
-                  }))}
+                  onChange={(event) => updateAi({ enabled: event.currentTarget.checked })}
                   label="AI 기능 사용"
                   description="기본값은 비활성이며, 사용자가 설정하기 전에는 외부 요청을 보내지 않습니다."
                 />
@@ -853,20 +816,14 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     placeholder="http://ai-gateway.intra/v1"
                     required={settings.ai.enabled}
                     value={settings.ai.base_url}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      ai: { ...current.ai, base_url: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateAi({ base_url: event.currentTarget.value })}
                   />
                   <TextInput
                     label="모델"
                     placeholder="사내 제공 모델 이름"
                     required={settings.ai.enabled}
                     value={settings.ai.model}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      ai: { ...current.ai, model: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateAi({ model: event.currentTarget.value })}
                   />
                   <Select
                     label="API 인증 방식"
@@ -877,10 +834,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                       { value: 'none', label: '인증 없음 (내부망)' },
                     ]}
                     value={settings.ai.auth_type}
-                    onChange={(value) => setSettings((current) => ({
-                      ...current,
-                      ai: { ...current.ai, auth_type: (value || 'bearer') as AiSettings['auth_type'] },
-                    }))}
+                    onChange={(value) => updateAi({ auth_type: (value || 'bearer') as AiSettings['auth_type'] })}
                   />
                   <PasswordInput
                     label="API Key"
@@ -891,10 +845,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     autoComplete="new-password"
                     disabled={settings.ai.auth_type === 'none'}
                     value={settings.ai.api_key}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      ai: { ...current.ai, api_key: event.currentTarget.value, clear_api_key: false },
-                    }))}
+                    onChange={(event) => updateAi({ api_key: event.currentTarget.value, clear_api_key: false })}
                   />
                   <NumberInput
                     label="최대 출력 토큰"
@@ -904,10 +855,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     clampBehavior="strict"
                     thousandSeparator=","
                     value={settings.ai.max_tokens}
-                    onChange={(value) => setSettings((current) => ({
-                      ...current,
-                      ai: { ...current.ai, max_tokens: typeof value === 'number' ? value : 4096 },
-                    }))}
+                    onChange={(value) => updateAi({ max_tokens: typeof value === 'number' ? value : 4096 })}
                   />
                   <NumberInput
                     label="요청 제한 시간(초)"
@@ -915,10 +863,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     max={3600}
                     clampBehavior="strict"
                     value={settings.ai.timeout_seconds}
-                    onChange={(value) => setSettings((current) => ({
-                      ...current,
-                      ai: { ...current.ai, timeout_seconds: typeof value === 'number' ? value : 600 },
-                    }))}
+                    onChange={(value) => updateAi({ timeout_seconds: typeof value === 'number' ? value : 600 })}
                   />
                   <Switch
                     checked
@@ -929,10 +874,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 </SimpleGrid>
                 <Switch
                   checked={settings.ai.allow_insecure_http}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    ai: { ...current.ai, allow_insecure_http: event.currentTarget.checked },
-                  }))}
+                  onChange={(event) => updateAi({ allow_insecure_http: event.currentTarget.checked })}
                   label="AI endpoint 내부 HTTP 허용"
                   description="기본값은 OFF입니다. TLS를 적용할 수 없는 신뢰된 내부 개발망에서만 사용하세요."
                 />
@@ -950,7 +892,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                       onClick={() => {
                         if (!window.confirm('저장된 AI API Key를 삭제할까요? 인증이 필요한 AI endpoint는 삭제 후 사용할 수 없습니다.')) return;
                         setAiResult(null);
-                        setSettings((current) => ({ ...current, ai: { ...current.ai, api_key: '', clear_api_key: true } }));
+                        updateAi({ api_key: '', clear_api_key: true });
                       }}
                     >
                       API Key 삭제
@@ -985,10 +927,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     max={1440}
                     clampBehavior="strict"
                     value={settings.security.session_timeout_minutes}
-                    onChange={(value) => setSettings((current) => ({
-                      ...current,
-                      security: { ...current.security, session_timeout_minutes: typeof value === 'number' ? value : 720 },
-                    }))}
+                    onChange={(value) => updateSecurity({ session_timeout_minutes: typeof value === 'number' ? value : 720 })}
                   />
                   <NumberInput
                     label="최소 비밀번호 길이"
@@ -996,10 +935,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     max={128}
                     clampBehavior="strict"
                     value={settings.security.password_min_length}
-                    onChange={(value) => setSettings((current) => ({
-                      ...current,
-                      security: { ...current.security, password_min_length: typeof value === 'number' ? value : 12 },
-                    }))}
+                    onChange={(value) => updateSecurity({ password_min_length: typeof value === 'number' ? value : 12 })}
                   />
                   <NumberInput
                     label="감사 로그 보존 기간(일)"
@@ -1009,10 +945,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     max={3650}
                     clampBehavior="strict"
                     value={settings.security.audit_retention_days}
-                    onChange={(value) => setSettings((current) => ({
-                      ...current,
-                      security: { ...current.security, audit_retention_days: typeof value === 'number' ? value : 180 },
-                    }))}
+                    onChange={(value) => updateSecurity({ audit_retention_days: typeof value === 'number' ? value : 180 })}
                   />
                   <TextInput
                     label="허용 네트워크"
@@ -1020,28 +953,19 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     disabled
                     placeholder="10.10.0.0/16, 10.20.0.0/16"
                     value={settings.security.allowed_networks}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      security: { ...current.security, allowed_networks: event.currentTarget.value },
-                    }))}
+                    onChange={(event) => updateSecurity({ allowed_networks: event.currentTarget.value })}
                   />
                 </SimpleGrid>
                 <Switch
                   checked={settings.security.allow_local_login}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    security: { ...current.security, allow_local_login: event.currentTarget.checked },
-                  }))}
+                  onChange={(event) => updateSecurity({ allow_local_login: event.currentTarget.checked })}
                   label="로컬 로그인 허용"
                   description="Keycloak 장애 시 복구 계정을 위해 최소 한 명의 로컬 관리자를 유지하세요."
                 />
                 <Switch
                   checked={settings.security.require_password_change}
                   disabled
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    security: { ...current.security, require_password_change: event.currentTarget.checked },
-                  }))}
+                  onChange={(event) => updateSecurity({ require_password_change: event.currentTarget.checked })}
                   label="Bootstrap 관리자의 최초 비밀번호 변경 요구 (프리뷰)"
                   description="v0.2.0은 상태를 저장하지만 로그인 시 강제하지 않습니다. 배포 직후 프로필에서 직접 변경하세요."
                 />
@@ -1057,10 +981,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 <Switch
                   size="md"
                   checked={settings.notifications.enabled}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    notifications: { ...current.notifications, enabled: event.currentTarget.checked },
-                  }))}
+                  onChange={(event) => updateNotifications({ enabled: event.currentTarget.checked })}
                   label="서명 Webhook 알림 사용"
                   description="저장 후 선택한 운영 이벤트를 Webhook으로 전달합니다."
                 />
@@ -1072,10 +993,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     placeholder={settings.notifications.webhook_configured ? '•••••••••••• (설정됨)' : 'https://hooks.example.internal/jikim'}
                     required={settings.notifications.enabled && !settings.notifications.webhook_configured}
                     value={settings.notifications.webhook_url}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      notifications: { ...current.notifications, webhook_url: event.currentTarget.value, clear_webhook: false },
-                    }))}
+                    onChange={(event) => updateNotifications({ webhook_url: event.currentTarget.value, clear_webhook: false })}
                   />
                   <PasswordInput
                     label="Webhook 서명 Secret"
@@ -1083,10 +1001,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     placeholder={settings.notifications.signing_secret_configured ? '•••••••••••• (설정됨)' : '직접 지정하거나 비워두기'}
                     autoComplete="new-password"
                     value={settings.notifications.signing_secret}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      notifications: { ...current.notifications, signing_secret: event.currentTarget.value, rotate_signing_secret: false },
-                    }))}
+                    onChange={(event) => updateNotifications({ signing_secret: event.currentTarget.value, rotate_signing_secret: false })}
                   />
                 </SimpleGrid>
                 <Group gap="xs">
@@ -1106,10 +1021,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                       onClick={() => {
                         if (!window.confirm('저장된 Webhook URL을 삭제하고 알림을 끌까요?')) return;
                         setWebhookResult(null);
-                        setSettings((current) => ({
-                          ...current,
-                          notifications: { ...current.notifications, enabled: false, webhook_url: '', clear_webhook: true },
-                        }));
+                        updateNotifications({ enabled: false, webhook_url: '', clear_webhook: true });
                       }}
                     >
                       Webhook 삭제
@@ -1124,10 +1036,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                       onClick={() => {
                         if (!window.confirm('Webhook 서명 Secret을 회전할까요? 저장 즉시 기존 Secret으로 만든 서명은 더 이상 유효하지 않습니다.')) return;
                         setWebhookResult(null);
-                        setSettings((current) => ({
-                          ...current,
-                          notifications: { ...current.notifications, signing_secret: '', rotate_signing_secret: true },
-                        }));
+                        updateNotifications({ signing_secret: '', rotate_signing_secret: true });
                       }}
                     >
                       서명 키 회전
@@ -1136,10 +1045,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 </Group>
                 <Switch
                   checked={settings.notifications.allow_insecure_http}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    notifications: { ...current.notifications, allow_insecure_http: event.currentTarget.checked },
-                  }))}
+                  onChange={(event) => updateNotifications({ allow_insecure_http: event.currentTarget.checked })}
                   label="Webhook 내부 HTTP 허용"
                   description="기본값은 OFF입니다. TLS를 적용할 수 없는 신뢰된 내부 개발망에서만 사용하세요."
                 />
@@ -1147,10 +1053,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                   label="알림 이벤트"
                   description="Webhook으로 전달할 이벤트를 선택합니다."
                   value={settings.notifications.events}
-                  onChange={(events) => setSettings((current) => ({
-                    ...current,
-                    notifications: { ...current.notifications, events },
-                  }))}
+                  onChange={(events) => updateNotifications({ events })}
                 >
                   <SimpleGrid cols={{ base: 1, sm: 2 }} mt="sm">
                     {notificationEvents.map((event) => <Checkbox key={event.value} value={event.value} label={event.label} disabled={!settings.notifications.enabled} />)}

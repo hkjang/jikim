@@ -9,6 +9,18 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.1] - 2026-09-04
+
+### 수정
+
+- 관리자 설정의 Keycloak OIDC Issuer URL 입력 중 화면이 백지가 되던 오류 수정. 연결 테스트 결과가 있는 상태에서 입력하면 React가 setState 업데이터를 렌더 단계로 미루고, 그 시점에는 이미 비워진 synthetic event의 `currentTarget`을 읽어 렌더링이 중단됐습니다
+
+### 변경
+
+- 관리 설정, 사용자, 정책, 프로필, 키 화면의 입력 핸들러가 이벤트 값을 핸들러에서 먼저 읽고 상태 갱신에 전달하도록 정리해 같은 형태의 잠재 오류 제거
+- 화면 렌더링 오류가 애플리케이션 전체를 내리지 않도록 라우팅 영역에 ErrorBoundary를 추가하고 다시 시도·새로 고침 복구 경로 제공
+- setState 업데이터 안에서 `event.currentTarget`을 읽으면 lint가 실패하도록 규칙 추가
+
 ## [0.2.0] - 2026-09-01
 
 ### 추가
@@ -92,6 +104,7 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/hkjang/jikim/releases/tag/v0.2.1
 [0.2.0]: https://github.com/hkjang/jikim/releases/tag/v0.2.0
 [0.1.0]: https://github.com/hkjang/jikim/releases/tag/v0.1.0

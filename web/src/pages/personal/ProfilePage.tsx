@@ -82,6 +82,11 @@ function ProfileForm({ initialUser }: { initialUser: User }) {
     confirm_password: '',
   });
   const [passwordValidation, setPasswordValidation] = useState<string | null>(null);
+
+  // Read the event in the handler; React nulls currentTarget once the handler
+  // returns, so a deferred setState updater can no longer touch it.
+  const updateProfile = (patch: Partial<ProfileDraft>) => setProfile((current) => ({ ...current, ...patch }));
+  const updatePassword = (patch: Partial<PasswordDraft>) => setPassword((current) => ({ ...current, ...patch }));
   const isLocalAccount = initialUser.auth_source === 'local';
 
   const profileMutation = useMutation({
@@ -165,7 +170,7 @@ function ProfileForm({ initialUser }: { initialUser: User }) {
               label="표시 이름"
               autoComplete="name"
               value={profile.display_name}
-              onChange={(event) => setProfile((current) => ({ ...current, display_name: event.currentTarget.value }))}
+              onChange={(event) => updateProfile({ display_name: event.currentTarget.value })}
             />
             <TextInput
               type="email"
@@ -173,7 +178,7 @@ function ProfileForm({ initialUser }: { initialUser: User }) {
               autoComplete="email"
               placeholder="name@example.internal"
               value={profile.email}
-              onChange={(event) => setProfile((current) => ({ ...current, email: event.currentTarget.value }))}
+              onChange={(event) => updateProfile({ email: event.currentTarget.value })}
             />
 
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
@@ -218,7 +223,7 @@ function ProfileForm({ initialUser }: { initialUser: User }) {
                   autoComplete="current-password"
                   required
                   value={password.current_password}
-                  onChange={(event) => setPassword((current) => ({ ...current, current_password: event.currentTarget.value }))}
+                  onChange={(event) => updatePassword({ current_password: event.currentTarget.value })}
                 />
                 <PasswordInput
                   label="새 비밀번호"
@@ -226,14 +231,14 @@ function ProfileForm({ initialUser }: { initialUser: User }) {
                   autoComplete="new-password"
                   required
                   value={password.new_password}
-                  onChange={(event) => setPassword((current) => ({ ...current, new_password: event.currentTarget.value }))}
+                  onChange={(event) => updatePassword({ new_password: event.currentTarget.value })}
                 />
                 <PasswordInput
                   label="새 비밀번호 확인"
                   autoComplete="new-password"
                   required
                   value={password.confirm_password}
-                  onChange={(event) => setPassword((current) => ({ ...current, confirm_password: event.currentTarget.value }))}
+                  onChange={(event) => updatePassword({ confirm_password: event.currentTarget.value })}
                 />
                 <Group justify="flex-end">
                   <Button type="submit" color="orange" leftSection={<KeyRound size={17} />} loading={passwordMutation.isPending}>

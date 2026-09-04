@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../lib/api';
+import { ErrorBoundary } from './ErrorBoundary';
 import { APP_VERSION } from '../lib/format';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -201,7 +202,7 @@ export function AppLayout() {
           </Group>
         </Group>
       </AppShell.Header>
-      <AppShell.Main><div className="content-wrap"><Outlet /></div></AppShell.Main>
+      <AppShell.Main><div className="content-wrap"><ErrorBoundary resetKey={location.pathname}><Outlet /></ErrorBoundary></div></AppShell.Main>
 
       <Drawer opened={mobileOpened} onClose={closeMobile} withCloseButton={false} size={280} padding={0} classNames={{ content: 'sidebar' }}>
         <Group pos="absolute" right={10} top={18} style={{ zIndex: 2 }}><UnstyledButton onClick={closeMobile} aria-label="메뉴 닫기"><ThemeIcon color="gray" variant="transparent"><X color="white" /></ThemeIcon></UnstyledButton></Group>

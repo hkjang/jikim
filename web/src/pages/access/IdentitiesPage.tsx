@@ -127,6 +127,10 @@ export function IdentitiesPage({ adminMode = false }: { adminMode?: boolean }) {
   const [draft, setDraft] = useState<UserDraft>(emptyDraft);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  // Read the event in the handler; React nulls currentTarget once the handler
+  // returns, so a deferred setState updater can no longer touch it.
+  const updateDraft = (patch: Partial<UserDraft>) => setDraft((current) => ({ ...current, ...patch }));
+
   const usersQuery = useQuery({
     queryKey: ['users'],
     queryFn: () => get<unknown>('/users'),
@@ -301,10 +305,10 @@ export function IdentitiesPage({ adminMode = false }: { adminMode?: boolean }) {
               readOnly={Boolean(editingUser)}
               autoComplete="username"
               value={draft.username}
-              onChange={(event) => setDraft((current) => ({ ...current, username: event.currentTarget.value }))}
+              onChange={(event) => updateDraft({ username: event.currentTarget.value })}
             />
-            <TextInput label="표시 이름" required autoComplete="name" value={draft.display_name} onChange={(event) => setDraft((current) => ({ ...current, display_name: event.currentTarget.value }))} />
-            <TextInput type="email" label="이메일" autoComplete="email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.currentTarget.value }))} />
+            <TextInput label="표시 이름" required autoComplete="name" value={draft.display_name} onChange={(event) => updateDraft({ display_name: event.currentTarget.value })} />
+            <TextInput type="email" label="이메일" autoComplete="email" value={draft.email} onChange={(event) => updateDraft({ email: event.currentTarget.value })} />
             <Select
               label="역할"
               required
@@ -312,13 +316,13 @@ export function IdentitiesPage({ adminMode = false }: { adminMode?: boolean }) {
               value={draft.role}
               disabled={editingUser?.id === currentUser.id}
               description={editingUser?.id === currentUser.id ? '현재 로그인한 계정의 역할은 여기서 낮출 수 없습니다.' : undefined}
-              onChange={(value) => setDraft((current) => ({ ...current, role: value || 'user' }))}
+              onChange={(value) => updateDraft({ role: value || 'user' })}
             />
           </SimpleGrid>
           {!editingUser && (
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
-              <PasswordInput label="초기 비밀번호" description="12자 이상 입력하세요. 더 강한 관리자 정책이 있으면 해당 길이를 따라야 합니다." required autoComplete="new-password" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.currentTarget.value }))} />
-              <PasswordInput label="초기 비밀번호 확인" required autoComplete="new-password" value={draft.confirm_password} onChange={(event) => setDraft((current) => ({ ...current, confirm_password: event.currentTarget.value }))} />
+              <PasswordInput label="초기 비밀번호" description="12자 이상 입력하세요. 더 강한 관리자 정책이 있으면 해당 길이를 따라야 합니다." required autoComplete="new-password" value={draft.password} onChange={(event) => updateDraft({ password: event.currentTarget.value })} />
+              <PasswordInput label="초기 비밀번호 확인" required autoComplete="new-password" value={draft.confirm_password} onChange={(event) => updateDraft({ confirm_password: event.currentTarget.value })} />
             </SimpleGrid>
           )}
           {editingUser && (
@@ -327,7 +331,7 @@ export function IdentitiesPage({ adminMode = false }: { adminMode?: boolean }) {
               disabled={editingUser.id === currentUser.id}
               label="계정 활성"
               description={editingUser.id === currentUser.id ? '현재 로그인한 계정은 스스로 비활성화할 수 없습니다.' : '끄면 해당 사용자의 활성 세션도 서버 정책에 따라 폐기됩니다.'}
-              onChange={(event) => setDraft((current) => ({ ...current, active: event.currentTarget.checked }))}
+              onChange={(event) => updateDraft({ active: event.currentTarget.checked })}
             />
           )}
           <Alert icon={<ShieldCheck size={18} />} color="blue">역할과 계정 상태 변경은 즉시 적용되고 감사 로그에 기록됩니다.</Alert>

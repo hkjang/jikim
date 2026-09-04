@@ -204,6 +204,14 @@ export function PoliciesPage() {
   const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
 
+  // Read the event in the handler; React nulls currentTarget once the handler
+  // returns, so a deferred setState updater can no longer touch it.
+  const updateDraft = (patch: Partial<PolicyDraft>) => setDraft((current) => ({ ...current, ...patch }));
+  const updateRule = (index: number, patch: Partial<PolicyDraft['rules'][number]>) => setDraft((current) => ({
+    ...current,
+    rules: current.rules.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item),
+  }));
+
   const policyQuery = useQuery({
     queryKey: ['policies'],
     queryFn: () => get<unknown>('/policies'),
@@ -490,8 +498,8 @@ export function PoliciesPage() {
           {(validationError || saveMutation.isError) && (
             <Alert icon={<CircleAlert size={18} />} color="red" title="정책을 저장할 수 없습니다" role="alert">{validationError || errorMessage(saveMutation.error)}</Alert>
           )}
-          <TextInput label="정책 이름" required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.currentTarget.value }))} />
-          <Textarea label="설명" autosize minRows={2} maxRows={5} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.currentTarget.value }))} />
+          <TextInput label="정책 이름" required value={draft.name} onChange={(event) => updateDraft({ name: event.currentTarget.value })} />
+          <Textarea label="설명" autosize minRows={2} maxRows={5} value={draft.description} onChange={(event) => updateDraft({ description: event.currentTarget.value })} />
           <Divider label="경로 규칙" labelPosition="left" />
           {draft.rules.map((rule, index) => (
             <Paper key={index} withBorder p="md" radius="md">
@@ -504,10 +512,7 @@ export function PoliciesPage() {
                     required
                     style={{ flex: 1 }}
                     value={rule.path}
-                    onChange={(event) => setDraft((current) => ({
-                      ...current,
-                      rules: current.rules.map((item, itemIndex) => itemIndex === index ? { ...item, path: event.currentTarget.value } : item),
-                    }))}
+                    onChange={(event) => updateRule(index, { path: event.currentTarget.value })}
                   />
                   <ActionIcon
                     color="red"

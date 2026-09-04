@@ -5,7 +5,7 @@
 공식 사이트: https://hkjang.github.io/jikim/
 소스 저장소: https://github.com/hkjang/jikim
 릴리스: https://github.com/hkjang/jikim/releases
-현재 문서 프로파일: v0.2.0
+현재 문서 프로파일: v0.2.1
 기본 언어: 한국어
 라이선스: Apache-2.0
 
@@ -13,15 +13,15 @@
 
 - 서비스 시작에 필요한 애플리케이션 환경변수는 POSTGRES_DSN, BOOTSTRAP_ADMIN, BOOTSTRAP_ADMIN_PASSWORD, ENCRYPTION_KEY 네 개입니다.
 - 서비스는 8080 포트에서 동작하며 /healthz와 /readyz 상태 확인 경로를 제공합니다.
-- 오프라인 산출물 이름은 jikim-v0.2.0.tar.gz, 포함 이미지 태그는 jikim:v0.2.0입니다.
-- OpenBao 전체 호환을 주장하지 않습니다. v0.2.0은 KV v2 CAS, metadata, soft delete, undelete, destroy와 일부 Token·Transit 핸들러를 제공하는 제한 프로파일이며 OpenBao differential suite는 미구현입니다.
+- 오프라인 산출물 이름은 jikim-v0.2.1.tar.gz, 포함 이미지 태그는 jikim:v0.2.1입니다.
+- OpenBao 전체 호환을 주장하지 않습니다. v0.2.1은 KV v2 CAS, metadata, soft delete, undelete, destroy와 일부 Token·Transit 핸들러를 제공하는 제한 프로파일이며 OpenBao differential suite는 미구현입니다.
 - OpenAPI 3.1 계약은 /api/openapi.json, 런타임 지원 범위는 /api/v1/capabilities에서 확인합니다.
 - MCP는 인증된 stateless POST /mcp만 사용합니다. initialize를 포함한 모든 POST는 application/json Content-Type과 application/json, text/event-stream dual Accept를 요구하며, initialize 이후 MCP-Protocol-Version은 2025-11-25 또는 2025-06-18이어야 합니다.
 - 서명 Webhook은 HMAC-SHA256 전송, 이벤트 필터, 연결 테스트, delivery 이력과 관리자 수동 재전송을 제공합니다. 예약형 자동 재시도는 제공하지 않습니다.
 - AI는 OpenAI-compatible Chat Completions SSE, 저장 설정 연결 테스트, Bearer/api-key/무인증을 지원합니다. max_tokens 설정 범위는 1~262,144이며 실제 상한은 upstream 모델 정책을 따릅니다.
 - Keycloak OIDC, AI, 승인, 서명 Webhook 및 키 정책 같은 운영 설정은 관리자 UI에서 관리합니다.
 - AI 요청에는 Secret 평문을 포함하지 않는 것이 기본 보안 경계입니다.
-- 릴리스 게이트는 내부 Docker network의 PostgreSQL과 빌드 이미지를 사용해 전체 화면 Playwright E2E를 실행합니다. v0.2.0 갤러리의 현재 캡처 상태는 docs/screenshots/manifest.json을 기준으로 판단합니다.
+- 릴리스 게이트는 내부 Docker network의 PostgreSQL과 빌드 이미지를 사용해 전체 화면 Playwright E2E를 실행합니다. v0.2.1 갤러리의 현재 캡처 상태는 docs/screenshots/manifest.json을 기준으로 판단합니다.
 
 ## 문서
 
