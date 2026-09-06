@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 수정
+
+- `PUT /api/v1/settings`가 보안·일반·AI 설정의 잘못된 타입 값을 200으로 저장한 뒤 읽을 때 조용히 버리던 오류 수정. `allow_local_login: "false"`처럼 문자열로 보낸 boolean이나 `session_timeout_minutes: "60"` 같은 문자열 숫자는 설정이 적용된 것처럼 보였지만 실제로는 기본값이 유지됐습니다. 이제 타입이 맞지 않으면 400으로 거부합니다
+
 ### 계획
 
 - OpenBao differential 호환성 비교 테스트 범위 확대
