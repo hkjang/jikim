@@ -86,8 +86,8 @@ func (l *loginRateLimiter) succeeded(key string) {
 	l.mu.Unlock()
 }
 
-func loginRateKey(r *http.Request, username string) string {
-	return remoteIP(r) + "\x00" + strings.ToLower(strings.TrimSpace(username))
+func (s *Server) loginRateKey(r *http.Request, username string) string {
+	return s.clientIP(r) + "\x00" + strings.ToLower(strings.TrimSpace(username))
 }
 
 func (s *Server) rejectRateLimitedLogin(w http.ResponseWriter, r *http.Request, key string, openBao bool) bool {

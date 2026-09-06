@@ -95,6 +95,7 @@ interface SecuritySettings {
   password_min_length: number;
   audit_retention_days: number;
   allowed_networks: string;
+  trusted_proxies: string;
 }
 
 interface NotificationSettings {
@@ -233,6 +234,7 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
       password_min_length: numberValue(security.password_min_length, 12),
       audit_retention_days: numberValue(security.audit_retention_days, 180),
       allowed_networks: stringValue(security.allowed_networks),
+      trusted_proxies: stringValue(security.trusted_proxies),
     },
     notifications: {
       enabled: booleanValue(notification.enabled),
@@ -565,7 +567,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
 
             <Tabs.Panel value="general" pt="xl">
               <Stack gap="xl">
-                <SectionHeading icon={<Languages size={20} />} title="일반 설정" description="v0.2.0의 제품명과 한국어 운영 기준을 확인합니다." />
+                <SectionHeading icon={<Languages size={20} />} title="일반 설정" description="현재 버전의 제품명과 한국어 운영 기준을 확인합니다." />
                 <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
                   <TextInput
                     label="서비스 표시 이름"
@@ -665,7 +667,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                       checked
                       disabled
                       label="요청자 본인 승인 금지"
-                      description="요청자와 승인자가 반드시 다르도록 항상 강제합니다. v0.2.0은 1인 승인을 지원합니다."
+                      description="요청자와 승인자가 반드시 다르도록 항상 강제합니다. 현재 버전은 1인 승인을 지원합니다."
                     />
                     <Checkbox.Group
                       label="승인 적용 작업"
@@ -918,7 +920,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
               <Stack gap="xl">
                 <SectionHeading icon={<ShieldCheck size={20} />} title="보안 정책" description="인증 세션과 비밀번호, 감사 보존 정책을 설정합니다." />
                 <Alert color="blue" title="즉시 적용되는 설정">
-                  세션 제한 시간, 최소 비밀번호 길이와 로컬 로그인 허용은 저장 후 새 요청부터 적용됩니다. 보존 자동화·네트워크 강제·최초 비밀번호 변경 강제는 v0.2.0 프리뷰입니다.
+                  세션 제한 시간, 최소 비밀번호 길이, 로컬 로그인 허용과 신뢰 Reverse Proxy는 저장 후 새 요청부터 적용됩니다. 보존 자동화·네트워크 강제·최초 비밀번호 변경 강제는 아직 프리뷰입니다.
                 </Alert>
                 <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
                   <NumberInput
@@ -939,7 +941,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                   />
                   <NumberInput
                     label="감사 로그 보존 기간(일)"
-                    description="보존 정책 메타데이터 프리뷰이며 v0.2.0은 자동 삭제를 수행하지 않습니다."
+                    description="보존 정책 메타데이터 프리뷰이며 현재 버전은 자동 삭제를 수행하지 않습니다."
                     disabled
                     min={30}
                     max={3650}
@@ -949,11 +951,18 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                   />
                   <TextInput
                     label="허용 네트워크"
-                    description="네트워크 Zone 프리뷰입니다. v0.2.0에서는 Reverse Proxy나 방화벽에서 강제하세요."
+                    description="네트워크 Zone 프리뷰입니다. 현재 버전에서는 Reverse Proxy나 방화벽에서 강제하세요."
                     disabled
                     placeholder="10.10.0.0/16, 10.20.0.0/16"
                     value={settings.security.allowed_networks}
                     onChange={(event) => updateSecurity({ allowed_networks: event.currentTarget.value })}
+                  />
+                  <TextInput
+                    label="신뢰 Reverse Proxy"
+                    description="여기 등록한 대역에서 온 요청만 X-Forwarded-For를 신뢰해 감사 로그 IP와 로그인 제한에 사용합니다. 비우면 접속 주소를 그대로 기록합니다."
+                    placeholder="10.10.0.0/16, 192.0.2.10"
+                    value={settings.security.trusted_proxies}
+                    onChange={(event) => updateSecurity({ trusted_proxies: event.currentTarget.value })}
                   />
                 </SimpleGrid>
                 <Switch
@@ -967,7 +976,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                   disabled
                   onChange={(event) => updateSecurity({ require_password_change: event.currentTarget.checked })}
                   label="Bootstrap 관리자의 최초 비밀번호 변경 요구 (프리뷰)"
-                  description="v0.2.0은 상태를 저장하지만 로그인 시 강제하지 않습니다. 배포 직후 프로필에서 직접 변경하세요."
+                  description="현재 버전은 상태를 저장하지만 로그인 시 강제하지 않습니다. 배포 직후 프로필에서 직접 변경하세요."
                 />
               </Stack>
             </Tabs.Panel>

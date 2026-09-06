@@ -55,6 +55,37 @@ func TestSecuritySettingsRejectMistypedValues(t *testing.T) {
 	}
 }
 
+func TestTrustedProxiesValidationAndParsing(t *testing.T) {
+	for _, raw := range []string{"10.10.0.0/16, nope", "10.10.0.0/64", "10.10.0.0-10.10.0.9"} {
+		if err := ValidateSetting("security", map[string]any{"trusted_proxies": raw}); err == nil {
+			t.Fatalf("잘못된 trusted_proxies가 수용되었습니다: %s", raw)
+		}
+	}
+	if err := ValidateSetting("security", map[string]any{"trusted_proxies": []any{"10.10.0.0/16"}}); err == nil {
+		t.Fatal("trusted_proxies의 배열 값이 수용되었습니다")
+	}
+	if err := ValidateSetting("security", map[string]any{"trusted_proxies": "10.10.0.0/16 192.0.2.10, 2001:db8::/32"}); err != nil {
+		t.Fatalf("정상 trusted_proxies가 거부되었습니다: %v", err)
+	}
+	empty, err := ParseTrustedProxies("  ")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("ParseTrustedProxies(빈 값) = %v, %v", empty, err)
+	}
+	prefixes, err := ParseTrustedProxies("10.10.0.5/16, 192.0.2.10\n2001:db8::/32")
+	if err != nil {
+		t.Fatalf("ParseTrustedProxies() error = %v", err)
+	}
+	want := []string{"10.10.0.0/16", "192.0.2.10/32", "2001:db8::/32"}
+	if len(prefixes) != len(want) {
+		t.Fatalf("ParseTrustedProxies() = %v, want %v", prefixes, want)
+	}
+	for index, expected := range want {
+		if prefixes[index].String() != expected {
+			t.Fatalf("prefix %d = %s, want %s", index, prefixes[index], expected)
+		}
+	}
+}
+
 func TestGeneralAndAISettingsRejectMistypedValues(t *testing.T) {
 	if err := ValidateSetting("service", map[string]any{"service_name": 42}); err == nil {
 		t.Fatal("service_name의 숫자 값이 수용되었습니다")

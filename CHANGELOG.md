@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### 추가
+
+- 서비스 관리 → 시스템 설정 → 보안에 `신뢰 Reverse Proxy` 목록 추가. 등록한 CIDR 또는 IP에서 들어온 요청에 한해 `X-Forwarded-For` 체인을 오른쪽에서 왼쪽으로 판별해 실제 클라이언트 주소를 찾습니다
+
+### 수정
+
+- Reverse Proxy 뒤에서 감사 로그의 IP가 항상 Proxy 주소로 기록되고 로그인 실패 제한이 접속 주소 대신 Proxy 주소를 기준으로 묶이던 문제 수정. 목록을 비워 두면 이전과 동일하게 `X-Forwarded-For`를 무시하고 TCP 접속 주소만 사용합니다
+
 ### 계획
 
 - OpenBao differential 호환성 비교 테스트 범위 확대

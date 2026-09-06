@@ -281,7 +281,7 @@ func (s *Server) recordMCPTransitDecrypt(r *http.Request, user model.User, key s
 		Path:       r.URL.Path,
 		StatusCode: status,
 		Success:    success,
-		RemoteIP:   remoteIP(r),
+		RemoteIP:   s.clientIP(r),
 		UserAgent:  r.UserAgent(),
 		Details:    map[string]any{"tool": "transit.decrypt", "key": key},
 	}

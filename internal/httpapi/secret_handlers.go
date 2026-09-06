@@ -132,7 +132,7 @@ func (s *Server) revealSecret(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.RecordAudit(r.Context(), model.AuditEvent{RequestID: requestIDFrom(r) + "-reveal",
 		UserID: &session.User.ID, Username: session.User.Username, Action: "secret.reveal", Resource: path,
 		Method: r.Method, Path: r.URL.Path, StatusCode: http.StatusOK, Success: true,
-		RemoteIP: remoteIP(r), UserAgent: r.UserAgent(), Details: map[string]any{"reason": input.Reason, "version": secret.Version}}); err != nil {
+		RemoteIP: s.clientIP(r), UserAgent: r.UserAgent(), Details: map[string]any{"reason": input.Reason, "version": secret.Version}}); err != nil {
 		writeError(w, r, http.StatusServiceUnavailable, "audit_unavailable", "감사 로그를 저장할 수 없어 Secret 값을 표시하지 않습니다")
 		return
 	}

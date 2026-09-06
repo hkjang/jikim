@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -268,6 +269,14 @@ func validateSetting(key string, value map[string]any) error {
 		if err := optionalString(value, "allowed_networks"); err != nil {
 			return err
 		}
+		if err := optionalString(value, "trusted_proxies"); err != nil {
+			return err
+		}
+		if raw, ok := value["trusted_proxies"].(string); ok {
+			if _, err := ParseTrustedProxies(raw); err != nil {
+				return err
+			}
+		}
 	case "service":
 		if err := optionalString(value, "service_name"); err != nil {
 			return err
@@ -472,6 +481,34 @@ type SecurityConfig struct {
 	RequirePasswordChange bool
 	PasswordMinLength     int
 	AuditRetentionDays    int
+	// TrustedProxies is empty unless an administrator lists reverse proxy
+	// networks, because any client can forge X-Forwarded-For.
+	TrustedProxies []netip.Prefix
+}
+
+// ParseTrustedProxies reads the administrator's reverse proxy list. Entries are
+// CIDR blocks or single addresses separated by commas or whitespace.
+func ParseTrustedProxies(raw string) ([]netip.Prefix, error) {
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	prefixes := make([]netip.Prefix, 0, len(fields))
+	for _, field := range fields {
+		if prefix, err := netip.ParsePrefix(field); err == nil {
+			prefixes = append(prefixes, prefix.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(field)
+		if err != nil {
+			return nil, fmt.Errorf("%w: trusted_proxies 항목이 CIDR이나 IP가 아닙니다: %s", ErrInvalid, field)
+		}
+		addr = addr.Unmap().WithZone("")
+		prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	if len(prefixes) == 0 {
+		return nil, nil
+	}
+	return prefixes, nil
 }
 
 func (s *Store) SecurityConfig(ctx context.Context) (SecurityConfig, error) {
@@ -513,6 +550,13 @@ func (s *Store) SecurityConfig(ctx context.Context) (SecurityConfig, error) {
 	}
 	if result.AuditRetentionDays > 3650 {
 		result.AuditRetentionDays = 3650
+	}
+	if raw, ok := setting.Value["trusted_proxies"].(string); ok {
+		// Stored values are validated on write; ignore a list we cannot parse
+		// so a bad entry never turns into blind trust of forwarded headers.
+		if prefixes, parseErr := ParseTrustedProxies(raw); parseErr == nil {
+			result.TrustedProxies = prefixes
+		}
 	}
 	return result, nil
 }

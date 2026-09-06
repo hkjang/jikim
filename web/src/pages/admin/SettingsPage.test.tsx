@@ -42,7 +42,7 @@ const settingsResponse = {
     allow_insecure_http: false,
   },
   ai: { enabled: false, base_url: '', auth_type: 'bearer', model: '', max_tokens: 4096, timeout_seconds: 600 },
-  security: { allow_local_login: true, session_timeout_minutes: 720, password_min_length: 12, audit_retention_days: 180, allowed_networks: '' },
+  security: { allow_local_login: true, session_timeout_minutes: 720, password_min_length: 12, audit_retention_days: 180, allowed_networks: '', trusted_proxies: '' },
   notifications: { enabled: false, events: [] },
 };
 

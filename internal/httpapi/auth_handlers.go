@@ -47,7 +47,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	rateKey := loginRateKey(r, input.Username)
+	rateKey := s.loginRateKey(r, input.Username)
 	if s.rejectRateLimitedLogin(w, r, rateKey, false) {
 		return
 	}

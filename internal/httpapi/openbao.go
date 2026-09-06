@@ -80,7 +80,7 @@ func (s *Server) baoUserpassLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := r.PathValue("username")
-	rateKey := loginRateKey(r, username)
+	rateKey := s.loginRateKey(r, username)
 	if s.rejectRateLimitedLogin(w, r, rateKey, true) {
 		return
 	}

@@ -55,6 +55,16 @@ Reverse Proxy가 TLS를 종료한다면 신뢰할 수 있는 Proxy만 `X-Forward
 
 기본 보안 헤더는 CSP, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, 제한된 `Permissions-Policy`를 포함합니다. 상위 Proxy가 이를 약화하지 않는지 확인하십시오.
 
+### 신뢰 Reverse Proxy
+
+Reverse Proxy 뒤에서는 TCP 접속 주소가 항상 Proxy 주소이므로 감사 로그 IP와 로그인 실패 제한 단위가 모든 사용자에게 동일해집니다. **서비스 관리 → 시스템 설정 → 보안**의 `신뢰 Reverse Proxy`에 Proxy 대역을 CIDR이나 단일 IP로 등록하면 해당 대역에서 온 요청에 한해 `X-Forwarded-For`를 사용해 실제 클라이언트 주소를 기록합니다.
+
+- 기본값은 비어 있으며, 이때는 `X-Forwarded-For`를 무시하고 접속 주소만 기록합니다. 누구나 이 헤더를 위조할 수 있기 때문입니다.
+- 값이 있으면 체인을 오른쪽에서 왼쪽으로 훑어 신뢰 대역이 아닌 첫 주소를 클라이언트로 판단합니다. 클라이언트가 앞쪽에 임의의 값을 덧붙여도 신뢰 경계 밖의 항목은 채택되지 않습니다.
+- Proxy가 클라이언트에게서 받은 `X-Forwarded-For`를 그대로 이어붙이지 않고 자신이 본 주소만 덧붙이도록 구성하십시오.
+- 등록하지 않은 대역에서 온 요청은 헤더 유무와 무관하게 접속 주소를 기록합니다.
+- 변경은 저장 후 최대 30초 안에 새 요청부터 적용됩니다.
+
 ## Keycloak OIDC
 
 - Issuer 정확히 일치
@@ -124,7 +134,7 @@ AI 모델에 보낼 수 있는 기본 범위는 Secret ID, 마스킹된 경로, 
 
 ## 감사
 
-API, `/v1/*`, MCP 요청은 요청 ID, 사용자, 동작, 리소스, 결과, IP, User-Agent와 시각을 중심으로 기록합니다. 감사 이벤트에 요청·응답 전체 본문이나 Secret 평문을 넣지 않습니다.
+API, `/v1/*`, MCP 요청은 요청 ID, 사용자, 동작, 리소스, 결과, IP, User-Agent와 시각을 중심으로 기록합니다. 기록되는 IP는 기본적으로 TCP 접속 주소이며, 위의 `신뢰 Reverse Proxy`를 설정한 경우에만 `X-Forwarded-For`에서 판별한 클라이언트 주소를 사용합니다. 감사 이벤트에 요청·응답 전체 본문이나 Secret 평문을 넣지 않습니다.
 
 OpenBao KV data 읽기와 Transit 복호화는 민감 결과를 응답하기 전에 별도 disclosure 감사를 저장합니다. 해당 감사 저장이 실패하면 API는 Secret 또는 평문을 내보내지 않습니다. MCP Transit 복호화도 일반 `/mcp` 요청 감사 외에 tool/key가 들어간 이벤트를 별도로 남깁니다. 감사 DB 가용성 장애가 민감 조회 장애로 이어지는 것은 의도한 fail-closed 동작입니다.
 

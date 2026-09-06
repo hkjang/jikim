@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -22,6 +21,7 @@ type Server struct {
 	httpClient        *http.Client
 	aiClient          *http.Client
 	static            http.Handler
+	trustedProxies    trustedProxyCache
 	loginLimiter      *loginRateLimiter
 	aiLimiter         *aiRequestLimiter
 	webhookSlots      chan struct{}
@@ -283,7 +283,7 @@ func (s *Server) audit(next http.Handler) http.Handler {
 		}
 		event := model.AuditEvent{RequestID: requestIDFrom(r), Action: auditAction(r), Resource: auditResource(r),
 			Method: r.Method, Path: r.URL.Path, StatusCode: status, Success: status < 400,
-			RemoteIP: remoteIP(r), UserAgent: r.UserAgent()}
+			RemoteIP: s.clientIP(r), UserAgent: r.UserAgent()}
 		if session, ok := sessionFrom(r); ok {
 			event.UserID = &session.User.ID
 			event.Username = session.User.Username
@@ -309,14 +309,6 @@ func auditResource(r *http.Request) string {
 		return id
 	}
 	return r.URL.Path
-}
-
-func remoteIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return host
-	}
-	return r.RemoteAddr
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
