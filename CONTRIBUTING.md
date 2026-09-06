@@ -63,7 +63,7 @@ docker pull postgres:17-alpine
 make release-check
 ```
 
-`release-check`는 소스 테스트, `jikim:v0.2.3` 이미지, 상태 endpoint, 외부 egress 차단, `jikim-v0.2.3.tar.gz`와 SHA-256을 검증합니다. 릴리스 생성이나 push는 하지 않습니다.
+`release-check`는 소스 테스트, `jikim:v0.2.4` 이미지, 상태 endpoint, 외부 egress 차단, `jikim-v0.2.4.tar.gz`와 SHA-256을 검증합니다. 릴리스 생성이나 push는 하지 않습니다.
 
 ## Go 변경
 
