@@ -214,11 +214,11 @@ func validateSetting(key string, value map[string]any) error {
 				return fmt.Errorf("%w: AI base_url: %v", ErrInvalid, err)
 			}
 		}
-		if raw, ok := numberAsInt(value["max_tokens"]); ok && (raw < 1 || raw > 262144) {
-			return fmt.Errorf("%w: max_tokens는 1~262144여야 합니다", ErrInvalid)
+		if err := optionalIntInRange(value, "max_tokens", 1, 262144); err != nil {
+			return err
 		}
-		if raw, ok := numberAsInt(value["timeout_seconds"]); ok && (raw < 10 || raw > 3600) {
-			return fmt.Errorf("%w: timeout_seconds는 10~3600이어야 합니다", ErrInvalid)
+		if err := optionalIntInRange(value, "timeout_seconds", 10, 3600); err != nil {
+			return err
 		}
 		if raw, ok := value["temperature"]; ok {
 			temperature, ok := raw.(float64)
@@ -249,14 +249,34 @@ func validateSetting(key string, value map[string]any) error {
 			}
 		}
 	case "security":
-		if raw, ok := numberAsInt(value["session_timeout_minutes"]); ok && (raw < 5 || raw > 1440) {
-			return fmt.Errorf("%w: session_timeout_minutes는 5~1440이어야 합니다", ErrInvalid)
+		// 잘못된 타입을 조용히 버리면 보안 설정이 적용된 것처럼 보이므로 거부합니다.
+		if _, err := optionalBool(value, "allow_local_login"); err != nil {
+			return err
 		}
-		if raw, ok := numberAsInt(value["password_min_length"]); ok && (raw < 12 || raw > 128) {
-			return fmt.Errorf("%w: password_min_length는 12~128이어야 합니다", ErrInvalid)
+		if _, err := optionalBool(value, "require_password_change"); err != nil {
+			return err
 		}
-		if raw, ok := numberAsInt(value["audit_retention_days"]); ok && (raw < 1 || raw > 3650) {
-			return fmt.Errorf("%w: audit_retention_days는 1~3650이어야 합니다", ErrInvalid)
+		if err := optionalIntInRange(value, "session_timeout_minutes", 5, 1440); err != nil {
+			return err
+		}
+		if err := optionalIntInRange(value, "password_min_length", 12, 128); err != nil {
+			return err
+		}
+		if err := optionalIntInRange(value, "audit_retention_days", 1, 3650); err != nil {
+			return err
+		}
+		if err := optionalString(value, "allowed_networks"); err != nil {
+			return err
+		}
+	case "service":
+		if err := optionalString(value, "service_name"); err != nil {
+			return err
+		}
+		if err := optionalString(value, "default_language"); err != nil {
+			return err
+		}
+		if err := optionalString(value, "timezone"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -287,6 +307,32 @@ func optionalBool(value map[string]any, key string) (bool, error) {
 		return false, fmt.Errorf("%w: %s는 boolean이어야 합니다", ErrInvalid, key)
 	}
 	return result, nil
+}
+
+func optionalString(value map[string]any, key string) error {
+	raw, ok := value[key]
+	if !ok {
+		return nil
+	}
+	if _, ok := raw.(string); !ok {
+		return fmt.Errorf("%w: %s는 문자열이어야 합니다", ErrInvalid, key)
+	}
+	return nil
+}
+
+func optionalIntInRange(value map[string]any, key string, minimum, maximum int) error {
+	raw, ok := value[key]
+	if !ok {
+		return nil
+	}
+	number, ok := numberAsInt(raw)
+	if !ok {
+		return fmt.Errorf("%w: %s는 정수여야 합니다", ErrInvalid, key)
+	}
+	if number < minimum || number > maximum {
+		return fmt.Errorf("%w: %s는 %d~%d여야 합니다", ErrInvalid, key, minimum, maximum)
+	}
+	return nil
 }
 
 func validateIntegrationURL(raw string, allowInsecure, allowQuery bool) error {
