@@ -27,6 +27,7 @@ type Server struct {
 	webhookSlots      chan struct{}
 	transitAuthorizer func(context.Context, model.User, string, string) (bool, error)
 	secretAuthorizer  func(context.Context, model.User, string, string) (bool, error)
+	transitEncryptor  func(context.Context, string, string, string) (string, error)
 	transitDecryptor  func(context.Context, string, string) (string, error)
 	auditRecorder     func(context.Context, model.AuditEvent) error
 }

@@ -23,7 +23,7 @@ jikim `v0.2.3`은 **OpenBao 전체 호환 제품이라고 주장하지 않습니
 | KV v2 | `/v1/secret/data/*`, `/v1/secret/{delete,undelete,destroy}/*`, `/v1/secret/metadata/*` | 제한 | 고정 `secret` mount의 data, CAS, soft-delete, undelete, destroy, metadata 조회·목록·전체 삭제만 지원. 아래 세부 계약 참조 |
 | Userpass 로그인 | `/v1/auth/userpass/login/:username` | 제한 | 로컬 사용자 인증과 설정된 session timeout의 비갱신 토큰 발급. 기본 12시간 |
 | Token | `/v1/auth/token/{lookup-self,create,revoke-self}` | 제한 | self lookup, 관리자·매니저의 동일 사용자 token 생성, self revoke만. create TTL 최대 30일, parent/renew/wrap 의미 미지원 |
-| Transit | `/v1/transit/encrypt/*`, `/v1/transit/decrypt/*` | 제한 | 이름 있는 AES-256-GCM 키의 단일 base64 암·복호화만. batch, rewrap, sign, HMAC, key 설정·목록 API 미구현 |
+| Transit | `/v1/transit/encrypt/*`, `/v1/transit/decrypt/*` | 제한 | 이름 있는 AES-256-GCM 키의 base64 암·복호화. 단건과 `batch_input`/`batch_results`를 지원하며 `context`, `nonce`, `associated_data`, `key_version` 지정과 rewrap, sign, HMAC, key 설정·목록 API는 미구현 |
 | Policy | `/v1/sys/policies/acl/*` | 미지원 | 정책 관리는 jikim `/api/v1/policies`에서 제공하며 OpenBao 계약이 아님 |
 | Namespace 헤더 | `X-Vault-Namespace` | 미지원 | 멀티테넌시 의미를 제공한다고 가정하지 않음 |
 | Seal / Unseal | `/v1/sys/seal*` | 미지원 | `ENCRYPTION_KEY` 부트스트랩 프로파일 사용 |
@@ -99,6 +99,28 @@ CAS 검사는 PostgreSQL serializable transaction과 행 잠금 안에서 버전
 Metadata 응답에서 `cas_required=false`, `metadata_cas_required=false`, `max_versions=0`, `delete_version_after="0s"`, `current_metadata_version=0`, `oldest_version=0`은 현재 구현의 고정값입니다. 자동 버전 pruning, metadata 갱신·CAS, pagination은 없습니다. LIST 결과가 비어 있으면 `404`입니다. 전체 metadata 삭제와 존재하지 않는 key의 일부 삭제 요청은 `204`가 될 수 있으므로 삭제 후 조회 검증이 필요합니다.
 
 Unit test는 wire field, LIST fallback, CAS 검증과 오류 envelope를 확인합니다. PostgreSQL을 포함한 CAS·delete·undelete·destroy lifecycle 검증은 `JIKIM_TEST_POSTGRES_DSN`을 지정한 opt-in integration test입니다. 어느 테스트도 기준 OpenBao 인스턴스와 자동 비교하지 않습니다.
+
+## Transit 제한 계약
+
+mount 이름은 `transit`으로 고정되며 key는 `/`를 포함할 수 없습니다. 권한은 jikim capability(`transit/{key}`에 대한 `encrypt`·`decrypt`)와 key별 permission을 함께 확인합니다. 존재하지 않는 key로 encrypt를 호출하면 `create` capability가 있을 때만 AES-256-GCM key를 새로 만듭니다.
+
+| Method와 path | Body | 구현 동작 |
+| --- | --- | --- |
+| `POST`·`PUT /v1/transit/encrypt/{key}` | `{"plaintext":"<base64>"}` | `data.ciphertext`와 `data.key_version` 반환 |
+| `POST`·`PUT /v1/transit/encrypt/{key}` | `{"batch_input":[{"plaintext":"<base64>"}]}` | 항목 순서를 유지한 `data.batch_results` 반환 |
+| `POST`·`PUT /v1/transit/decrypt/{key}` | `{"ciphertext":"vault:vN:..."}` | `data.plaintext` 반환 |
+| `POST`·`PUT /v1/transit/decrypt/{key}` | `{"batch_input":[{"ciphertext":"vault:vN:..."}]}` | 항목 순서를 유지한 `data.batch_results` 반환 |
+
+`batch_input`이 있으면 단건 `plaintext`·`ciphertext` 필드는 무시합니다. batch 의미는 다음과 같습니다.
+
+- 각 결과는 입력과 같은 순서이며 성공 항목은 `ciphertext`·`key_version` 또는 `plaintext`를, 실패 항목은 `error` 문자열을 가집니다.
+- 항목에 `reference`를 넣으면 해당 결과에 그대로 되돌려 줍니다.
+- 성공 항목이 하나라도 있으면 `200`, 모든 항목이 실패하면 `400`이며 두 경우 모두 `batch_results`를 반환합니다.
+- `batch_input`이 빈 배열이면 `400`입니다.
+- `context`, `nonce`, `associated_data`, 0이 아닌 `key_version`은 구현하지 않으므로 조용히 무시하지 않고 해당 항목을 `error`로 처리합니다.
+- decrypt는 batch 전체를 하나의 감사 이벤트로 기록하며 감사 기록에 실패하면 `503`과 함께 어떤 평문도 반환하지 않습니다.
+
+rewrap, sign, verify, HMAC, datakey, key 생성·조회·설정·rotate API(`/v1/transit/keys/*`)는 `/v1`에 없습니다. key 생성과 rotate는 jikim 관리 API에서 제공합니다.
 
 ## differential suite에서 비교할 항목
 
