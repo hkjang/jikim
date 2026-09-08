@@ -9,6 +9,12 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.5] - 2026-09-09
+
+### 수정
+
+- `/v1/transit/encrypt/{key}`와 `/v1/transit/decrypt/{key}`가 저장소 오류를 종류와 무관하게 `400`으로 반환하고 내부 오류 문자열을 그대로 노출하던 오류 수정. 데이터베이스 장애처럼 서버 측 실패는 이제 `500`과 일반 메시지로 응답하고, 존재하지 않는 키는 OpenBao와 동일하게 `400` `encryption key not found`로 응답합니다. batch 경로도 항목별 `error`에 같은 판정을 적용하며 모든 항목이 실패했는데 서버 장애가 포함되면 `400` 대신 `500`을 반환합니다
+
 ## [0.2.4] - 2026-09-08
 
 ### 추가
@@ -122,7 +128,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/hkjang/jikim/releases/tag/v0.2.5
 [0.2.4]: https://github.com/hkjang/jikim/releases/tag/v0.2.4
 [0.2.3]: https://github.com/hkjang/jikim/releases/tag/v0.2.3
 [0.2.2]: https://github.com/hkjang/jikim/releases/tag/v0.2.2
