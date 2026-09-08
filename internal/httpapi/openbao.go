@@ -488,20 +488,72 @@ func openBaoMetadataData(metadata store.OpenBaoKVMetadata) map[string]any {
 	}
 }
 
+// baoTransitBatchItem mirrors an OpenBao Transit batch_input entry. jikim
+// implements plaintext, ciphertext and reference only; the remaining OpenBao
+// parameters are reported as a per-item error instead of being ignored so a
+// client never receives a result that silently dropped the derivation context
+// or key version it asked for.
+type baoTransitBatchItem struct {
+	Plaintext      *string `json:"plaintext"`
+	Ciphertext     *string `json:"ciphertext"`
+	Reference      string  `json:"reference"`
+	Context        *string `json:"context"`
+	Nonce          *string `json:"nonce"`
+	AssociatedData *string `json:"associated_data"`
+	KeyVersion     *int    `json:"key_version"`
+}
+
+func (item baoTransitBatchItem) unsupportedParameter() string {
+	switch {
+	case item.Context != nil && *item.Context != "":
+		return "context"
+	case item.Nonce != nil && *item.Nonce != "":
+		return "nonce"
+	case item.AssociatedData != nil && *item.AssociatedData != "":
+		return "associated_data"
+	case item.KeyVersion != nil && *item.KeyVersion != 0:
+		return "key_version"
+	}
+	return ""
+}
+
+func baoTransitBatchResult(item baoTransitBatchItem) map[string]any {
+	result := map[string]any{}
+	if item.Reference != "" {
+		result["reference"] = item.Reference
+	}
+	return result
+}
+
+// baoTransitBatchStatus follows OpenBao: a batch that produced no successful
+// item is a request error, otherwise per-item errors travel inside the body.
+func baoTransitBatchStatus(succeeded int) int {
+	if succeeded == 0 {
+		return http.StatusBadRequest
+	}
+	return http.StatusOK
+}
+
 func (s *Server) baoTransitEncrypt(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Plaintext string `json:"plaintext"`
+		Plaintext  string                 `json:"plaintext"`
+		BatchInput *[]baoTransitBatchItem `json:"batch_input"`
 	}
 	if !decodeBaoJSON(w, r, &input) {
 		return
 	}
+	key := r.PathValue("key")
 	session, _ := sessionFrom(r)
-	allowed, err := s.authorizeTransit(r, session.User, r.PathValue("key"), "encrypt")
+	allowed, err := s.authorizeTransit(r, session.User, key, "encrypt")
 	if err != nil || !allowed {
 		baoError(w, http.StatusForbidden, "permission denied")
 		return
 	}
-	ciphertext, err := s.store.TransitEncrypt(r.Context(), r.PathValue("key"), input.Plaintext, session.User.ID)
+	if input.BatchInput != nil {
+		s.baoTransitEncryptBatch(w, r, key, session.User.ID, *input.BatchInput)
+		return
+	}
+	ciphertext, err := s.encryptTransit(r.Context(), key, input.Plaintext, session.User.ID)
 	if err != nil {
 		baoError(w, http.StatusBadRequest, err.Error())
 		return
@@ -514,20 +566,60 @@ func (s *Server) baoTransitEncrypt(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, baoResponse(requestIDFrom(r), map[string]any{"ciphertext": ciphertext, "key_version": keyVersion}, nil))
 }
 
+func (s *Server) baoTransitEncryptBatch(w http.ResponseWriter, r *http.Request, key, actorID string, items []baoTransitBatchItem) {
+	if len(items) == 0 {
+		baoError(w, http.StatusBadRequest, "missing batch input to process")
+		return
+	}
+	results := make([]map[string]any, 0, len(items))
+	succeeded := 0
+	for _, item := range items {
+		result := baoTransitBatchResult(item)
+		switch {
+		case item.unsupportedParameter() != "":
+			result["error"] = "unsupported transit parameter: " + item.unsupportedParameter()
+		case item.Plaintext == nil:
+			result["error"] = "missing plaintext to encrypt"
+		default:
+			ciphertext, encryptErr := s.encryptTransit(r.Context(), key, *item.Plaintext, actorID)
+			if encryptErr != nil {
+				result["error"] = encryptErr.Error()
+				break
+			}
+			keyVersion, versionErr := transitCiphertextVersion(ciphertext)
+			if versionErr != nil {
+				result["error"] = versionErr.Error()
+				break
+			}
+			result["ciphertext"] = ciphertext
+			result["key_version"] = keyVersion
+			succeeded++
+		}
+		results = append(results, result)
+	}
+	writeJSON(w, baoTransitBatchStatus(succeeded), baoResponse(requestIDFrom(r), map[string]any{"batch_results": results}, nil))
+}
+
 func (s *Server) baoTransitDecrypt(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Ciphertext string `json:"ciphertext"`
+		Ciphertext string                 `json:"ciphertext"`
+		BatchInput *[]baoTransitBatchItem `json:"batch_input"`
 	}
 	if !decodeBaoJSON(w, r, &input) {
 		return
 	}
+	key := r.PathValue("key")
 	session, _ := sessionFrom(r)
-	allowed, err := s.authorizeTransit(r, session.User, r.PathValue("key"), "decrypt")
+	allowed, err := s.authorizeTransit(r, session.User, key, "decrypt")
 	if err != nil || !allowed {
 		baoError(w, http.StatusForbidden, "permission denied")
 		return
 	}
-	plaintext, err := s.decryptTransit(r.Context(), r.PathValue("key"), input.Ciphertext)
+	if input.BatchInput != nil {
+		s.baoTransitDecryptBatch(w, r, key, session.User, *input.BatchInput)
+		return
+	}
+	plaintext, err := s.decryptTransit(r.Context(), key, input.Ciphertext)
 	if err != nil {
 		baoError(w, http.StatusBadRequest, err.Error())
 		return
@@ -538,11 +630,60 @@ func (s *Server) baoTransitDecrypt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.recordSensitiveDisclosure(r, session.User, "openbao.transit.decrypt",
-		"transit/"+strings.Trim(r.PathValue("key"), "/"), map[string]any{"key": r.PathValue("key")}); err != nil {
+		"transit/"+strings.Trim(key, "/"), map[string]any{"key": key}); err != nil {
 		baoError(w, http.StatusServiceUnavailable, "audit device unavailable; plaintext withheld")
 		return
 	}
 	writeJSON(w, http.StatusOK, baoResponse(requestIDFrom(r), map[string]any{"plaintext": plaintext}, nil))
+}
+
+func (s *Server) baoTransitDecryptBatch(w http.ResponseWriter, r *http.Request, key string, user model.User, items []baoTransitBatchItem) {
+	if len(items) == 0 {
+		baoError(w, http.StatusBadRequest, "missing batch input to process")
+		return
+	}
+	results := make([]map[string]any, 0, len(items))
+	succeeded := 0
+	for _, item := range items {
+		result := baoTransitBatchResult(item)
+		switch {
+		case item.unsupportedParameter() != "":
+			result["error"] = "unsupported transit parameter: " + item.unsupportedParameter()
+		case item.Ciphertext == nil:
+			result["error"] = "missing ciphertext to decrypt"
+		default:
+			plaintext, decryptErr := s.decryptTransit(r.Context(), key, *item.Ciphertext)
+			if decryptErr != nil {
+				result["error"] = decryptErr.Error()
+				break
+			}
+			// Validate that output remains canonical base64.
+			if _, decodeErr := base64.StdEncoding.DecodeString(plaintext); decodeErr != nil {
+				result["error"] = "invalid plaintext"
+				break
+			}
+			result["plaintext"] = plaintext
+			succeeded++
+		}
+		results = append(results, result)
+	}
+	// One audit event covers the batch; a failed audit withholds every plaintext.
+	if succeeded > 0 {
+		if err := s.recordSensitiveDisclosure(r, user, "openbao.transit.decrypt",
+			"transit/"+strings.Trim(key, "/"),
+			map[string]any{"key": key, "batch": len(items), "decrypted": succeeded}); err != nil {
+			baoError(w, http.StatusServiceUnavailable, "audit device unavailable; plaintext withheld")
+			return
+		}
+	}
+	writeJSON(w, baoTransitBatchStatus(succeeded), baoResponse(requestIDFrom(r), map[string]any{"batch_results": results}, nil))
+}
+
+func (s *Server) encryptTransit(ctx context.Context, key, plaintext, actorID string) (string, error) {
+	if s.transitEncryptor != nil {
+		return s.transitEncryptor(ctx, key, plaintext, actorID)
+	}
+	return s.store.TransitEncrypt(ctx, key, plaintext, actorID)
 }
 
 func (s *Server) authorizeTransit(r *http.Request, user model.User, key, operation string) (bool, error) {

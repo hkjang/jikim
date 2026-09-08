@@ -15,7 +15,7 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 			"openbao": map[string]any{
 				"base": "/v1", "target": "OpenBao 2.6 KV v2 compatibility subset",
 				"complete": false,
-				"features": []string{"sys.health", "token.lookup-self", "kv-v2.data", "kv-v2.metadata", "kv-v2.cas", "kv-v2.delete", "kv-v2.undelete", "kv-v2.destroy", "transit.encrypt", "transit.decrypt"},
+				"features": []string{"sys.health", "token.lookup-self", "kv-v2.data", "kv-v2.metadata", "kv-v2.cas", "kv-v2.delete", "kv-v2.undelete", "kv-v2.destroy", "transit.encrypt", "transit.decrypt", "transit.batch"},
 			},
 		},
 		"mcp": map[string]any{
