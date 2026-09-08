@@ -222,6 +222,8 @@ MCP는 REST 권한을 우회하는 관리 채널이 아닙니다. 현재 도구 
 
 지원 도구 목록은 실행 중인 서버의 `tools/list` 결과가 기준입니다. 알 수 없는 도구·인자, 빠진 필수 인자와 잘못된 타입은 JSON-RPC `-32602` 오류가 됩니다. 현재 endpoint는 JSON 또는 notification의 빈 응답만 반환하며, 서버 발 SSE event stream, `Mcp-Session-Id`, 재개·재전송, JSON-RPC batch를 제공하지 않습니다.
 
+도구 실행이 실패하면 `isError=true` 본문에 권한 없음·대상 없음·잘못된 요청 값처럼 호출자가 조치할 수 있는 사유만 담깁니다. 데이터베이스 장애 같은 서버 측 실패는 `도구를 실행할 수 없습니다`로 일반화되며 드라이버 오류 문자열을 노출하지 않으므로, 원인 분석은 서버 로그와 감사 기록으로 하십시오.
+
 ## OpenBao KV v2 제한 프로파일
 
 KV v2 mount는 `secret`으로 고정되어 있으며 mount 생성·이동·tune API는 없습니다. 모든 경로는 `X-Vault-Token` 또는 지원되는 jikim 토큰으로 인증하고 로컬 policy capability를 적용합니다.
