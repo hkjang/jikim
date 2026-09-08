@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/hkjang/jikim/internal/model"
+	"github.com/hkjang/jikim/internal/store"
 	"github.com/hkjang/jikim/internal/version"
 )
 
@@ -221,7 +222,7 @@ func (s *Server) mcpToolCall(w http.ResponseWriter, r *http.Request, id json.Raw
 			break
 		}
 		var ciphertext string
-		ciphertext, err = s.store.TransitEncrypt(r.Context(), key, plaintext, session.User.ID)
+		ciphertext, err = s.encryptTransit(r.Context(), key, plaintext, session.User.ID)
 		result = map[string]any{"ciphertext": ciphertext}
 	case "transit.decrypt":
 		key, _ := params.Arguments["key"].(string)
@@ -238,7 +239,7 @@ func (s *Server) mcpToolCall(w http.ResponseWriter, r *http.Request, id json.Raw
 		plaintext, err = s.decryptTransit(r.Context(), key, ciphertext)
 		status := http.StatusOK
 		if err != nil {
-			status = http.StatusBadRequest
+			status, _ = mcpToolFailure(err)
 		}
 		if auditErr := s.recordMCPTransitDecrypt(r, session.User, key, err == nil, status); auditErr != nil {
 			plaintext = ""
@@ -250,7 +251,8 @@ func (s *Server) mcpToolCall(w http.ResponseWriter, r *http.Request, id json.Raw
 		return
 	}
 	if err != nil {
-		mcpResult(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": err.Error()}}, "isError": true})
+		_, message := mcpToolFailure(err)
+		mcpResult(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": message}}, "isError": true})
 		return
 	}
 	mcpToolResult(w, id, result)
@@ -586,13 +588,42 @@ func mcpHTTPError(w http.ResponseWriter, id json.RawMessage, status, code int, m
 	writeJSON(w, status, map[string]any{"jsonrpc": "2.0", "id": responseID, "error": map[string]any{"code": code, "message": message}})
 }
 
-type mcpSentinel string
-
-func (e mcpSentinel) Error() string { return string(e) }
-func storeForbidden() error         { return mcpSentinel("권한이 없습니다") }
-func storeNotFound() error          { return mcpSentinel("대상을 찾을 수 없습니다") }
-func auditUnavailable() error {
-	return mcpSentinel("감사 로그를 저장할 수 없어 복호화 결과를 표시하지 않습니다")
+// mcpSentinel is a failure the tool dispatch produced itself, so its message is
+// already safe to show an MCP client and its status is already known.
+type mcpSentinel struct {
+	status  int
+	message string
 }
 
-var _ model.User
+func (e mcpSentinel) Error() string { return e.message }
+func storeForbidden() error         { return mcpSentinel{http.StatusForbidden, "권한이 없습니다"} }
+func storeNotFound() error {
+	return mcpSentinel{http.StatusNotFound, "대상을 찾을 수 없습니다"}
+}
+func auditUnavailable() error {
+	return mcpSentinel{http.StatusInternalServerError, "감사 로그를 저장할 수 없어 복호화 결과를 표시하지 않습니다"}
+}
+
+// mcpToolFailure maps a tool failure to its status and the text an MCP client
+// may see. Only the store sentinels carry a caller-safe reason; anything else
+// is a server fault whose driver detail (SQLSTATE, DSN host) must not leave the
+// server, so it collapses into one generic message.
+func mcpToolFailure(err error) (int, string) {
+	var sentinel mcpSentinel
+	switch {
+	case errors.As(err, &sentinel):
+		return sentinel.status, sentinel.message
+	case errors.Is(err, store.ErrInvalid):
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, store.ErrNotFound):
+		return http.StatusNotFound, store.ErrNotFound.Error()
+	case errors.Is(err, store.ErrForbidden), errors.Is(err, store.ErrRequesterMatch):
+		return http.StatusForbidden, store.ErrForbidden.Error()
+	case errors.Is(err, store.ErrUnauthorized):
+		return http.StatusUnauthorized, store.ErrUnauthorized.Error()
+	case errors.Is(err, store.ErrConflict):
+		return http.StatusConflict, store.ErrConflict.Error()
+	default:
+		return http.StatusInternalServerError, "도구를 실행할 수 없습니다"
+	}
+}
