@@ -4,14 +4,16 @@
 
 ## [Unreleased]
 
-### 추가
-
-- `/v1/transit/encrypt/{key}`와 `/v1/transit/decrypt/{key}`가 OpenBao Transit의 `batch_input`/`batch_results`를 지원합니다. 결과는 입력 순서를 유지하고 `reference`를 되돌려 주며, 항목별 실패는 `error`로 표시하고 모든 항목이 실패했을 때만 `400`을 반환합니다. jikim이 구현하지 않는 `context`, `nonce`, `associated_data`, `key_version`은 조용히 무시하지 않고 해당 항목의 오류로 처리하며, batch decrypt는 단건과 동일하게 감사 기록에 실패하면 평문을 반환하지 않습니다
-
 ### 계획
 
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
+
+## [0.2.4] - 2026-09-08
+
+### 추가
+
+- `/v1/transit/encrypt/{key}`와 `/v1/transit/decrypt/{key}`가 OpenBao Transit의 `batch_input`/`batch_results`를 지원합니다. 결과는 입력 순서를 유지하고 `reference`를 되돌려 주며, 항목별 실패는 `error`로 표시하고 모든 항목이 실패했을 때만 `400`을 반환합니다. jikim이 구현하지 않는 `context`, `nonce`, `associated_data`, `key_version`은 조용히 무시하지 않고 해당 항목의 오류로 처리하며, batch decrypt는 단건과 동일하게 감사 기록에 실패하면 평문을 반환하지 않습니다
 
 ## [0.2.3] - 2026-09-06
 
@@ -120,7 +122,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/hkjang/jikim/releases/tag/v0.2.4
 [0.2.3]: https://github.com/hkjang/jikim/releases/tag/v0.2.3
 [0.2.2]: https://github.com/hkjang/jikim/releases/tag/v0.2.2
 [0.2.1]: https://github.com/hkjang/jikim/releases/tag/v0.2.1
