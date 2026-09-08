@@ -9,6 +9,18 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.6] - 2026-09-09
+
+### 수정
+
+- MCP 도구 호출이 실패할 때 저장소 내부 오류 문자열을 그대로 `isError` 본문에 실어 보내던 오류 수정. 이제 store sentinel(`ErrInvalid`, `ErrNotFound`, `ErrForbidden`, `ErrUnauthorized`, `ErrConflict`)과 디스패치가 직접 만든 오류만 사유를 전달하고, 데이터베이스 장애처럼 그 밖의 실패는 `도구를 실행할 수 없습니다`로 접어 DSN host나 SQLSTATE가 MCP 클라이언트에 노출되지 않습니다
+- `transit.decrypt` 도구가 서버 장애까지 감사 기록에 `400`으로 남기던 오류 수정. 디스패치 sentinel이 자기 상태 코드를 들고 다니도록 바꿔 감사 `StatusCode`가 실제 실패 종류를 따릅니다
+
+### 변경
+
+- `transit.encrypt` 도구가 테스트 seam을 우회해 store를 직접 호출하던 경로를 `transit.decrypt`와 동일한 내부 헬퍼로 정리
+- API 가이드에 MCP 도구 실패 텍스트 계약 문서화
+
 ## [0.2.5] - 2026-09-09
 
 ### 수정
@@ -128,7 +140,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/hkjang/jikim/releases/tag/v0.2.6
 [0.2.5]: https://github.com/hkjang/jikim/releases/tag/v0.2.5
 [0.2.4]: https://github.com/hkjang/jikim/releases/tag/v0.2.4
 [0.2.3]: https://github.com/hkjang/jikim/releases/tag/v0.2.3
