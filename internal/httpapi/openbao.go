@@ -527,11 +527,32 @@ func baoTransitBatchResult(item baoTransitBatchItem) map[string]any {
 
 // baoTransitBatchStatus follows OpenBao: a batch that produced no successful
 // item is a request error, otherwise per-item errors travel inside the body.
-func baoTransitBatchStatus(succeeded int) int {
-	if succeeded == 0 {
+// An item that failed for a server-side reason is reported as a server fault
+// instead of blaming the caller.
+func baoTransitBatchStatus(succeeded int, serverFault bool) int {
+	switch {
+	case succeeded > 0:
+		return http.StatusOK
+	case serverFault:
+		return http.StatusInternalServerError
+	default:
 		return http.StatusBadRequest
 	}
-	return http.StatusOK
+}
+
+// baoTransitFailure maps a Transit store failure to its OpenBao-facing status
+// and message. Only ErrInvalid carries a caller-safe explanation; a missing key
+// or version stays a request error as OpenBao reports it, and anything else is
+// a server fault whose driver or crypto detail must not reach the client.
+func baoTransitFailure(err error, operation string) (int, string) {
+	switch {
+	case errors.Is(err, store.ErrInvalid):
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, store.ErrNotFound):
+		return http.StatusBadRequest, "encryption key not found"
+	default:
+		return http.StatusInternalServerError, "failed to " + operation
+	}
 }
 
 func (s *Server) baoTransitEncrypt(w http.ResponseWriter, r *http.Request) {
@@ -555,7 +576,8 @@ func (s *Server) baoTransitEncrypt(w http.ResponseWriter, r *http.Request) {
 	}
 	ciphertext, err := s.encryptTransit(r.Context(), key, input.Plaintext, session.User.ID)
 	if err != nil {
-		baoError(w, http.StatusBadRequest, err.Error())
+		status, message := baoTransitFailure(err, "encrypt plaintext")
+		baoError(w, status, message)
 		return
 	}
 	keyVersion, err := transitCiphertextVersion(ciphertext)
@@ -573,6 +595,7 @@ func (s *Server) baoTransitEncryptBatch(w http.ResponseWriter, r *http.Request, 
 	}
 	results := make([]map[string]any, 0, len(items))
 	succeeded := 0
+	serverFault := false
 	for _, item := range items {
 		result := baoTransitBatchResult(item)
 		switch {
@@ -583,12 +606,16 @@ func (s *Server) baoTransitEncryptBatch(w http.ResponseWriter, r *http.Request, 
 		default:
 			ciphertext, encryptErr := s.encryptTransit(r.Context(), key, *item.Plaintext, actorID)
 			if encryptErr != nil {
-				result["error"] = encryptErr.Error()
+				status, message := baoTransitFailure(encryptErr, "encrypt plaintext")
+				result["error"] = message
+				serverFault = serverFault || status >= http.StatusInternalServerError
 				break
 			}
 			keyVersion, versionErr := transitCiphertextVersion(ciphertext)
 			if versionErr != nil {
-				result["error"] = versionErr.Error()
+				// jikim produced this ciphertext, so a malformed one is our fault.
+				result["error"] = "invalid transit ciphertext"
+				serverFault = true
 				break
 			}
 			result["ciphertext"] = ciphertext
@@ -597,7 +624,7 @@ func (s *Server) baoTransitEncryptBatch(w http.ResponseWriter, r *http.Request, 
 		}
 		results = append(results, result)
 	}
-	writeJSON(w, baoTransitBatchStatus(succeeded), baoResponse(requestIDFrom(r), map[string]any{"batch_results": results}, nil))
+	writeJSON(w, baoTransitBatchStatus(succeeded, serverFault), baoResponse(requestIDFrom(r), map[string]any{"batch_results": results}, nil))
 }
 
 func (s *Server) baoTransitDecrypt(w http.ResponseWriter, r *http.Request) {
@@ -621,7 +648,8 @@ func (s *Server) baoTransitDecrypt(w http.ResponseWriter, r *http.Request) {
 	}
 	plaintext, err := s.decryptTransit(r.Context(), key, input.Ciphertext)
 	if err != nil {
-		baoError(w, http.StatusBadRequest, err.Error())
+		status, message := baoTransitFailure(err, "decrypt ciphertext")
+		baoError(w, status, message)
 		return
 	}
 	// Validate that output remains canonical base64.
@@ -644,6 +672,7 @@ func (s *Server) baoTransitDecryptBatch(w http.ResponseWriter, r *http.Request, 
 	}
 	results := make([]map[string]any, 0, len(items))
 	succeeded := 0
+	serverFault := false
 	for _, item := range items {
 		result := baoTransitBatchResult(item)
 		switch {
@@ -654,12 +683,15 @@ func (s *Server) baoTransitDecryptBatch(w http.ResponseWriter, r *http.Request, 
 		default:
 			plaintext, decryptErr := s.decryptTransit(r.Context(), key, *item.Ciphertext)
 			if decryptErr != nil {
-				result["error"] = decryptErr.Error()
+				status, message := baoTransitFailure(decryptErr, "decrypt ciphertext")
+				result["error"] = message
+				serverFault = serverFault || status >= http.StatusInternalServerError
 				break
 			}
 			// Validate that output remains canonical base64.
 			if _, decodeErr := base64.StdEncoding.DecodeString(plaintext); decodeErr != nil {
 				result["error"] = "invalid plaintext"
+				serverFault = true
 				break
 			}
 			result["plaintext"] = plaintext
@@ -676,7 +708,7 @@ func (s *Server) baoTransitDecryptBatch(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 	}
-	writeJSON(w, baoTransitBatchStatus(succeeded), baoResponse(requestIDFrom(r), map[string]any{"batch_results": results}, nil))
+	writeJSON(w, baoTransitBatchStatus(succeeded, serverFault), baoResponse(requestIDFrom(r), map[string]any{"batch_results": results}, nil))
 }
 
 func (s *Server) encryptTransit(ctx context.Context, key, plaintext, actorID string) (string, error) {

@@ -65,7 +65,8 @@ func (s *Store) TransitDecrypt(ctx context.Context, name, encoded string) (strin
 	}
 	plaintext, err := cipher.Decrypt(payload[12:], payload[:12], []byte(fmt.Sprintf("transit:%s:v%d", name, version)))
 	if err != nil {
-		return "", err
+		// AEAD 인증 실패는 서버 장애가 아니라 잘못된 ciphertext 입력입니다.
+		return "", fmt.Errorf("%w: ciphertext 인증 실패", ErrInvalid)
 	}
 	return base64.StdEncoding.EncodeToString(plaintext), nil
 }

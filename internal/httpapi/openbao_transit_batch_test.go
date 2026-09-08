@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/hkjang/jikim/internal/model"
+	"github.com/hkjang/jikim/internal/store"
 )
 
 func transitBatchRequest(target, key, body string) *http.Request {
@@ -46,7 +47,7 @@ func TestOpenBaoTransitEncryptBatchKeepsOrderAndReportsItemErrors(t *testing.T) 
 				return "", fmt.Errorf("unexpected key=%q actor=%q", key, actorID)
 			}
 			if plaintext == "!!" {
-				return "", errors.New("plaintext는 base64여야 합니다")
+				return "", fmt.Errorf("%w: plaintext는 base64여야 합니다", store.ErrInvalid)
 			}
 			return "vault:v2:" + plaintext, nil
 		},
@@ -86,7 +87,7 @@ func TestOpenBaoTransitEncryptBatchRejectsEmptyAndFullyFailedBatches(t *testing.
 	server := &Server{
 		transitAuthorizer: allowAllTransit(),
 		transitEncryptor: func(context.Context, string, string, string) (string, error) {
-			return "", errors.New("plaintext는 base64여야 합니다")
+			return "", fmt.Errorf("%w: plaintext는 base64여야 합니다", store.ErrInvalid)
 		},
 	}
 	empty := httptest.NewRecorder()
@@ -110,7 +111,7 @@ func TestOpenBaoTransitDecryptBatchKeepsOrderAndReportsItemErrors(t *testing.T) 
 		transitAuthorizer: allowAllTransit(),
 		transitDecryptor: func(_ context.Context, _, ciphertext string) (string, error) {
 			if ciphertext == "vault:v1:bad" {
-				return "", errors.New("ciphertext 형식")
+				return "", fmt.Errorf("%w: ciphertext 형식", store.ErrInvalid)
 			}
 			return base64.StdEncoding.EncodeToString([]byte(ciphertext)), nil
 		},
