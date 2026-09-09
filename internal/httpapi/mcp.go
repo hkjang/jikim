@@ -174,8 +174,8 @@ func (s *Server) mcpToolCall(w http.ResponseWriter, r *http.Request, id json.Raw
 	case "secrets.metadata":
 		path, _ := params.Arguments["path"].(string)
 		allowed, accessErr := s.authorizeSecret(r.Context(), session.User, path, "read")
-		if accessErr != nil || !allowed {
-			err = storeForbidden()
+		if failure := mcpAccessFailure(allowed, accessErr); failure != nil {
+			err = failure
 			break
 		}
 		items, listErr := s.store.ListSecrets(r.Context(), path, 100, 0)
@@ -188,6 +188,7 @@ func (s *Server) mcpToolCall(w http.ResponseWriter, r *http.Request, id json.Raw
 				versions, versionErr := s.store.SecretVersions(r.Context(), item.Path)
 				if versionErr != nil {
 					err = versionErr
+					break
 				}
 				result = map[string]any{"secret": item, "versions": versions}
 				break
@@ -217,8 +218,8 @@ func (s *Server) mcpToolCall(w http.ResponseWriter, r *http.Request, id json.Raw
 		key, _ := params.Arguments["key"].(string)
 		plaintext, _ := params.Arguments["plaintext"].(string)
 		allowed, accessErr := s.authorizeTransit(r, session.User, key, "encrypt")
-		if accessErr != nil || !allowed {
-			err = storeForbidden()
+		if failure := mcpAccessFailure(allowed, accessErr); failure != nil {
+			err = failure
 			break
 		}
 		var ciphertext string
@@ -228,9 +229,10 @@ func (s *Server) mcpToolCall(w http.ResponseWriter, r *http.Request, id json.Raw
 		key, _ := params.Arguments["key"].(string)
 		ciphertext, _ := params.Arguments["ciphertext"].(string)
 		allowed, accessErr := s.authorizeTransit(r, session.User, key, "decrypt")
-		if accessErr != nil || !allowed {
-			err = storeForbidden()
-			if auditErr := s.recordMCPTransitDecrypt(r, session.User, key, false, http.StatusForbidden); auditErr != nil {
+		if failure := mcpAccessFailure(allowed, accessErr); failure != nil {
+			err = failure
+			status, _ := mcpToolFailure(err)
+			if auditErr := s.recordMCPTransitDecrypt(r, session.User, key, false, status); auditErr != nil {
 				err = auditUnavailable()
 			}
 			break
@@ -602,6 +604,20 @@ func storeNotFound() error {
 }
 func auditUnavailable() error {
 	return mcpSentinel{http.StatusInternalServerError, "감사 로그를 저장할 수 없어 복호화 결과를 표시하지 않습니다"}
+}
+
+// mcpAccessFailure turns a capability check into the failure it stands for, or
+// nil when the caller may proceed. A lookup that could not run keeps its own
+// error so it is reported and audited as the server fault it is instead of
+// masquerading as a denial.
+func mcpAccessFailure(allowed bool, err error) error {
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return storeForbidden()
+	}
+	return nil
 }
 
 // mcpToolFailure maps a tool failure to its status and the text an MCP client
