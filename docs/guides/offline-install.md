@@ -1,6 +1,6 @@
 # 오프라인 설치 가이드
 
-이 절차는 `jikim:v0.2.8` 서비스 이미지를 `jikim-v0.2.8.tar.gz`로 반입하는 단일 노드 Docker 배포 프로파일입니다. PostgreSQL 설치와 백업은 운영 조직의 표준 절차를 따릅니다.
+이 절차는 `jikim:v0.2.9` 서비스 이미지를 `jikim-v0.2.9.tar.gz`로 반입하는 단일 노드 Docker 배포 프로파일입니다. PostgreSQL 설치와 백업은 운영 조직의 표준 절차를 따릅니다.
 
 ## 준비 사항
 
@@ -18,15 +18,15 @@
 GitHub Release에서 다음 두 파일을 같은 디렉터리에 받습니다.
 
 ```text
-jikim-v0.2.8.tar.gz
-jikim-v0.2.8.tar.gz.sha256
+jikim-v0.2.9.tar.gz
+jikim-v0.2.9.tar.gz.sha256
 ```
 
 체크섬을 먼저 검증합니다.
 
 ```bash
-sha256sum --check jikim-v0.2.8.tar.gz.sha256
-gzip --test jikim-v0.2.8.tar.gz
+sha256sum --check jikim-v0.2.9.tar.gz.sha256
+gzip --test jikim-v0.2.9.tar.gz
 ```
 
 성공 결과와 릴리스 URL, 반입 담당자, 시각을 반입 기록에 남깁니다.
@@ -36,12 +36,12 @@ gzip --test jikim-v0.2.8.tar.gz
 매체에서 복사한 뒤 동일한 체크섬 명령을 다시 실행합니다. 체크섬이 다르면 이미지를 적재하지 말고 반입 파일을 폐기한 뒤 다시 확보합니다.
 
 ```bash
-sha256sum --check jikim-v0.2.8.tar.gz.sha256
-docker load --input jikim-v0.2.8.tar.gz
-docker image inspect jikim:v0.2.8 --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'
+sha256sum --check jikim-v0.2.9.tar.gz.sha256
+docker load --input jikim-v0.2.9.tar.gz
+docker image inspect jikim:v0.2.9 --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'
 ```
 
-마지막 명령 결과는 `v0.2.8`이어야 합니다.
+마지막 명령 결과는 `v0.2.9`이어야 합니다.
 
 ## 3. PostgreSQL 준비
 
@@ -108,7 +108,7 @@ docker compose logs --tail 100 jikim
 - `/readyz`: PostgreSQL 등 필수 의존성을 포함한 준비 상태 확인
 - `/v1/sys/health`: OpenBao 제한 호환 프로파일 상태 응답. PostgreSQL에 닿지 못하면 `"sealed": true`와 `503`
 
-서비스 개방 전 로그인 화면과 프로필 메뉴의 버전이 `v0.2.8`인지 확인합니다.
+서비스 개방 전 로그인 화면과 프로필 메뉴의 버전이 `v0.2.9`인지 확인합니다.
 
 ## 8. TLS와 네트워크
 

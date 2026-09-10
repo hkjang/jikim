@@ -9,6 +9,22 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.9] - 2026-09-10
+
+### 수정
+
+- `GET /v1/sys/health`가 저장소 상태를 확인하지 않고 항상 `200`과 `"sealed": false`를 반환하던 오류 수정. jikim의 Secret과 Transit key는 전부 PostgreSQL에 있으므로, 이제 호출마다 `/readyz`와 동일한 2초 제한으로 저장소 응답을 확인하고 닿지 못하면 OpenBao의 seal과 같은 운영 상태로 보아 `"sealed": true`와 `503`으로 응답합니다. OpenBao 클라이언트와 Load Balancer가 표준 probe로 쓰는 경로가 장애 노드를 정상 active로 보고하지 않으며, 원인(driver 내부 문자열, DSN, SQLSTATE)은 응답에 담지 않습니다
+
+### 추가
+
+- `GET /v1/sys/health`가 OpenBao probe 설정을 그대로 옮길 수 있도록 `activecode`와 `sealedcode` 쿼리 파라미터를 지원합니다. `100`~`599` 범위의 정수가 아니면 조용히 무시하지 않고 `400` `invalid activecode`·`invalid sealedcode`로 거부합니다. jikim은 standby나 uninitialized를 보고하지 않으므로 나머지 OpenBao probe 파라미터는 응답에 영향을 주지 않습니다
+
+### 변경
+
+- `/v1/sys/health`를 감사 대상에서 제외. 이미 제외된 `/healthz`·`/readyz`와 같은 비인증 probe이며 poll마다 감사 row가 쌓이던 것을 정리했습니다
+- 저장소 응답 확인을 `/readyz`와 공유하는 `pingStorage` seam으로 정리
+- 호환성 가이드에 `/v1/sys/health`의 저장소 판정과 probe 파라미터 계약 문서화
+
 ## [0.2.8] - 2026-09-10
 
 ### 수정
@@ -166,7 +182,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/hkjang/jikim/releases/tag/v0.2.9
 [0.2.8]: https://github.com/hkjang/jikim/releases/tag/v0.2.8
 [0.2.7]: https://github.com/hkjang/jikim/releases/tag/v0.2.7
 [0.2.6]: https://github.com/hkjang/jikim/releases/tag/v0.2.6

@@ -4,9 +4,9 @@
 
 jikim은 Secret 값만 보관하는 도구를 넘어 애플리케이션, 소유자, 개인 키, 정책, 승인과 감사 흐름을 한곳에서 다루기 위한 Go + React 서비스입니다. 관리 화면은 한국어를 기본으로 하며 PostgreSQL에 저장되는 민감 데이터는 애플리케이션 계층에서 암호화합니다.
 
-> 현재 버전은 `v0.2.8`입니다. OpenBao 전체 또는 99.9% 호환을 주장하지 않습니다. `/v1/*`는 구현된 핸들러와 제약을 공개하는 **제한 프리뷰**이며, OpenBao 2.6.1과의 differential 호환성 suite는 아직 구현되지 않았습니다. 정확한 상한은 [호환성 프로파일](docs/guides/compatibility.md)을 확인하십시오.
+> 현재 버전은 `v0.2.9`입니다. OpenBao 전체 또는 99.9% 호환을 주장하지 않습니다. `/v1/*`는 구현된 핸들러와 제약을 공개하는 **제한 프리뷰**이며, OpenBao 2.6.1과의 differential 호환성 suite는 아직 구현되지 않았습니다. 정확한 상한은 [호환성 프로파일](docs/guides/compatibility.md)을 확인하십시오.
 
-## v0.2.8 기능 프로파일
+## v0.2.9 기능 프로파일
 
 | 영역 | 상태 | 범위 |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ jikim은 Secret 값만 보관하는 도구를 넘어 애플리케이션, 소유�
 | Webhook | 구현 | HMAC-SHA256 서명 전송, 이벤트 필터, 연결 확인, 이력과 수동 재시도 |
 | MCP | 구현 프로파일 | Streamable HTTP stateless, 2025-11-25/2025-06-18, 권한 확인·metadata·정책·감사·Transit 도구 |
 | OpenBao API | 제한 프리뷰 | Health, Userpass, Token 일부, KV v2 CAS·버전 삭제/복구/폐기·metadata, Transit 일부; 전체 differential suite 미구현 |
-| 오프라인 Docker | 구현 | `jikim:v0.2.8`, `jikim-v0.2.8.tar.gz`, SHA-256, egress 차단 스모크와 전체 화면 E2E |
+| 오프라인 Docker | 구현 | `jikim:v0.2.9`, `jikim-v0.2.9.tar.gz`, SHA-256, egress 차단 스모크와 전체 화면 E2E |
 | PKI·동적 DB 자격증명·Lease·Raft HA | 미지원/화면 프리뷰 | 후속 구현 대상이며 운영 지원으로 표시하지 않음 |
 
 일부 메뉴는 전체 제품 방향을 보여주는 프리뷰 화면입니다. 화면이 존재한다는 이유만으로 해당 엔진이나 `/v1/*` API가 구현되었다고 판단하지 마십시오.
@@ -97,14 +97,14 @@ curl --fail http://127.0.0.1:8080/v1/sys/health
 GitHub Release 산출물:
 
 ```text
-jikim-v0.2.8.tar.gz
-jikim-v0.2.8.tar.gz.sha256
+jikim-v0.2.9.tar.gz
+jikim-v0.2.9.tar.gz.sha256
 ```
 
 ```bash
-sha256sum --check jikim-v0.2.8.tar.gz.sha256
-docker load --input jikim-v0.2.8.tar.gz
-docker image inspect jikim:v0.2.8
+sha256sum --check jikim-v0.2.9.tar.gz.sha256
+docker load --input jikim-v0.2.9.tar.gz
+docker image inspect jikim:v0.2.9
 ```
 
 상세 절차와 TLS·백업·롤백 경계는 [오프라인 설치 가이드](docs/guides/offline-install.md)를 참조하십시오.
@@ -135,7 +135,7 @@ make package
 make verify-bundle
 ```
 
-태그 `v0.2.8`을 push하면 릴리스 워크플로가 태그·소스 버전 일치, linux/amd64 이미지, 상태 API, 내부 PostgreSQL, egress 차단, 전체 화면 Playwright와 번들 SHA-256을 검증한 뒤 GitHub Release를 생성합니다. 이미 발행된 릴리스 자산은 덮어쓰지 않습니다.
+태그 `v0.2.9`을 push하면 릴리스 워크플로가 태그·소스 버전 일치, linux/amd64 이미지, 상태 API, 내부 PostgreSQL, egress 차단, 전체 화면 Playwright와 번들 SHA-256을 검증한 뒤 GitHub Release를 생성합니다. 이미 발행된 릴리스 자산은 덮어쓰지 않습니다.
 
 ## API와 MCP
 
