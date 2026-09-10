@@ -112,7 +112,7 @@ curl --fail 'https://jikim.example/api/v1/version'
 curl --fail 'https://jikim.example/v1/sys/health'
 ```
 
-`/healthz` 성공이 데이터베이스 준비를 의미하지는 않습니다. 트래픽 투입 판단에는 `/readyz`를 사용합니다.
+`/healthz` 성공이 데이터베이스 준비를 의미하지는 않습니다. 트래픽 투입 판단에는 `/readyz`를 사용합니다. OpenBao 호환 클라이언트와 Load Balancer는 같은 목적으로 `/v1/sys/health`를 사용할 수 있습니다. 이 경로는 PostgreSQL에 닿지 못하면 `"sealed": true`와 `503`을 반환하고, `?activecode=`·`?sealedcode=`로 probe가 기대하는 상태 코드를 지정할 수 있습니다.
 
 ## jikim API v0.2.8 요약
 

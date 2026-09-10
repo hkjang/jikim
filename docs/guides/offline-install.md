@@ -106,7 +106,7 @@ docker compose logs --tail 100 jikim
 
 - `/healthz`: 프로세스가 요청을 처리할 수 있는지 확인
 - `/readyz`: PostgreSQL 등 필수 의존성을 포함한 준비 상태 확인
-- `/v1/sys/health`: OpenBao 제한 호환 프로파일 상태 응답
+- `/v1/sys/health`: OpenBao 제한 호환 프로파일 상태 응답. PostgreSQL에 닿지 못하면 `"sealed": true`와 `503`
 
 서비스 개방 전 로그인 화면과 프로필 메뉴의 버전이 `v0.2.8`인지 확인합니다.
 

@@ -19,7 +19,7 @@ jikim `v0.2.8`은 **OpenBao 전체 호환 제품이라고 주장하지 않습니
 
 | 영역 | 경로 예시 | 상태 | 범위와 제약 |
 | --- | --- | --- | --- |
-| 시스템 상태 | `GET /v1/sys/health` | 제한 | 서비스 상태 응답의 일부 필드. Seal/HA 의미 전체를 보장하지 않음 |
+| 시스템 상태 | `GET /v1/sys/health` | 제한 | 서비스 상태 응답의 일부 필드와 `activecode`·`sealedcode`. PostgreSQL 응답 불가를 `sealed`로 보고. Seal/HA 의미 전체를 보장하지 않음 |
 | KV v2 | `/v1/secret/data/*`, `/v1/secret/{delete,undelete,destroy}/*`, `/v1/secret/metadata/*` | 제한 | 고정 `secret` mount의 data, CAS, soft-delete, undelete, destroy, metadata 조회·목록·전체 삭제만 지원. 아래 세부 계약 참조 |
 | Userpass 로그인 | `/v1/auth/userpass/login/:username` | 제한 | 로컬 사용자 인증과 설정된 session timeout의 비갱신 토큰 발급. 기본 12시간 |
 | Token | `/v1/auth/token/{lookup-self,create,revoke-self}` | 제한 | self lookup, 관리자·매니저의 동일 사용자 token 생성, self revoke만. create TTL 최대 30일, parent/renew/wrap 의미 미지원 |
@@ -35,6 +35,13 @@ jikim `v0.2.8`은 **OpenBao 전체 호환 제품이라고 주장하지 않습니
 | Agent / Plugin API | 관련 API | 미지원 | 확장 단계 |
 
 이 표는 구현 범위의 상한입니다. 현재 자동 테스트는 jikim 내부 계약과 보안 경계를 확인하며 OpenBao 2.6.1과의 동일 입력 비교를 수행하지 않습니다. 운영 연결 전에는 사용 호출을 대상으로 별도 호환성 테스트를 수행하십시오.
+
+## 시스템 상태 제한 계약
+
+- `GET /v1/sys/health`는 매 호출마다 PostgreSQL 응답 여부를 2초 제한으로 확인합니다. jikim의 Secret과 Transit key는 모두 PostgreSQL에 있으므로 저장소에 닿지 못하는 상태는 OpenBao의 seal과 같은 운영 상태로 보고 `"sealed": true`와 `503`을 반환합니다. 정상이면 `"sealed": false`와 `200`입니다. 오류 원인(driver 문자열, DSN, SQLSTATE)은 응답에 담지 않습니다.
+- Load Balancer probe 설정을 그대로 옮길 수 있도록 `activecode`와 `sealedcode` 질의 파라미터를 지원합니다. 값이 없으면 기본값(`200`, `503`)을 쓰고, 100~599 범위의 정수가 아니면 무시하지 않고 `400`과 `invalid activecode`·`invalid sealedcode`를 반환합니다.
+- jikim은 standby나 uninitialized 상태를 보고하지 않으므로 `standbyok`, `standbycode`, `performancestandbycode`, `drsecondarycode`, `uninitcode`는 응답에 영향을 주지 않습니다. `"initialized"`는 항상 `true`, `"standby"`와 `"performance_standby"`는 항상 `false`입니다.
+- 이 경로는 인증 없이 리소스를 건드리지 않는 probe이므로 `/healthz`, `/readyz`와 마찬가지로 감사 로그에 기록하지 않습니다.
 
 ## KV v2 제한 계약
 

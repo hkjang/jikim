@@ -108,10 +108,48 @@ func baoAccessFailure(err error) (int, string) {
 	}
 }
 
-func (s *Server) baoHealth(w http.ResponseWriter, _ *http.Request) {
+// baoHealthCode reads one of the status-code overrides an operator puts in a
+// load balancer probe. An unparsable value is a request error, as OpenBao
+// reports it: silently falling back to the default would leave the probe
+// looking configured while it is not.
+func baoHealthCode(raw string, fallback int) (int, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fallback, true
+	}
+	code, err := strconv.Atoi(trimmed)
+	if err != nil || code < 100 || code > 599 {
+		return 0, false
+	}
+	return code, true
+}
+
+func (s *Server) baoHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"initialized": true, "sealed": false, "standby": false, "performance_standby": false,
+	activeCode, ok := baoHealthCode(r.URL.Query().Get("activecode"), http.StatusOK)
+	if !ok {
+		baoError(w, http.StatusBadRequest, "invalid activecode")
+		return
+	}
+	sealedCode, ok := baoHealthCode(r.URL.Query().Get("sealedcode"), http.StatusServiceUnavailable)
+	if !ok {
+		baoError(w, http.StatusBadRequest, "invalid sealedcode")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	// jikim keeps every secret and transit key in PostgreSQL, so storage it
+	// cannot reach is the operational state OpenBao calls sealed: the process
+	// answers but can serve nothing. Reporting "unsealed and active" through an
+	// outage keeps a load balancer routing traffic to a node whose every reply
+	// is a fault, and hides the outage from the standard OpenBao probe.
+	sealed := s.pingStorage(ctx) != nil
+	status := activeCode
+	if sealed {
+		status = sealedCode
+	}
+	writeJSON(w, status, map[string]any{
+		"initialized": true, "sealed": sealed, "standby": false, "performance_standby": false,
 		"replication_performance_mode": "disabled", "replication_dr_mode": "disabled",
 		"server_time_utc": time.Now().UTC().Unix(), "version": version.Version,
 		"cluster_name": "jikim", "cluster_id": "jikim-postgres",
