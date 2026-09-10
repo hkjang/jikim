@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -31,8 +32,15 @@ func (s *Server) sessionStatus(w http.ResponseWriter, r *http.Request) {
 		writeData(w, http.StatusOK, map[string]any{"authenticated": false})
 		return
 	}
-	session, err := s.store.SessionByToken(r.Context(), token)
+	session, err := s.resolveSession(r.Context(), token)
 	if err != nil {
+		// "Not authenticated" is the answer for a token that no longer resolves.
+		// A lookup that could not run has no answer, and reporting it as a guest
+		// hides the outage behind a login screen.
+		if !errors.Is(err, store.ErrUnauthorized) {
+			s.storeError(w, r, err)
+			return
+		}
 		writeData(w, http.StatusOK, map[string]any{"authenticated": false})
 		return
 	}
@@ -51,8 +59,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if s.rejectRateLimitedLogin(w, r, rateKey, false) {
 		return
 	}
-	user, err := s.store.Authenticate(r.Context(), input.Username, input.Password)
+	user, err := s.authenticate(r.Context(), input.Username, input.Password)
 	if err != nil {
+		// A credential lookup that could not run says nothing about the
+		// credential. Counting it as a failed attempt locks the account out of
+		// the login window for an outage the user did not cause.
+		if !errors.Is(err, store.ErrUnauthorized) {
+			s.storeError(w, r, err)
+			return
+		}
 		if s.loginLimiter != nil {
 			s.loginLimiter.failed(rateKey)
 		}
@@ -150,5 +165,3 @@ func requestIsHTTPS(r *http.Request) bool {
 	}
 	return strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https")
 }
-
-var _ = store.ErrUnauthorized

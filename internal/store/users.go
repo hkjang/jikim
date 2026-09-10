@@ -31,10 +31,22 @@ func (s *Store) Authenticate(ctx context.Context, username, rawPassword string) 
 	}
 	// Always run one full PBKDF2 verification, including absent users and NULL/malformed hashes.
 	verified := password.Verify(encoded, rawPassword)
+	if lookupFailed(err) {
+		return model.User{}, fmt.Errorf("사용자 조회 실패: %w", err)
+	}
 	if err != nil || hash == nil || !user.Active || !verified {
 		return model.User{}, ErrUnauthorized
 	}
 	return user, nil
+}
+
+// lookupFailed reports whether a single-row query error is the database failing
+// rather than the row simply not existing. Folding the two together reports an
+// outage as a rejected credential or an expired session: the caller is told to
+// log in again, retry logic treats a transient fault as final, and the login
+// rate limiter counts the outage against the user.
+func lookupFailed(err error) bool {
+	return err != nil && !errors.Is(err, pgx.ErrNoRows)
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID, kind, name, createdBy string, ttl time.Duration) (string, model.Session, error) {
@@ -86,6 +98,9 @@ func (s *Store) SessionByToken(ctx context.Context, plain string) (model.Session
 		&session.User.Role, &session.User.Active, &session.User.AuthSource,
 		&session.User.PersonalKeyVersion, &session.User.LastLoginAt,
 		&session.User.CreatedAt, &session.User.UpdatedAt)
+	if lookupFailed(err) {
+		return model.Session{}, fmt.Errorf("세션 조회 실패: %w", err)
+	}
 	if err != nil {
 		return model.Session{}, ErrUnauthorized
 	}

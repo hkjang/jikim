@@ -50,9 +50,10 @@ func (s *Server) withBaoAuth(next http.Handler) http.Handler {
 			baoError(w, http.StatusUnauthorized, "missing client token")
 			return
 		}
-		session, err := s.store.SessionByToken(r.Context(), token)
+		session, err := s.resolveSession(r.Context(), token)
 		if err != nil {
-			baoError(w, http.StatusForbidden, "permission denied")
+			status, message := baoSessionFailure(err)
+			baoError(w, status, message)
 			return
 		}
 		ctx := context.WithValue(r.Context(), sessionKey, session)
@@ -60,6 +61,18 @@ func (s *Server) withBaoAuth(next http.Handler) http.Handler {
 		*r = *r.WithContext(ctx)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// baoSessionFailure maps a failed token lookup to its OpenBao-facing status and
+// message. A token that no longer resolves is the denial OpenBao reports, but a
+// lookup that could not run is a server fault: calling it "permission denied"
+// tells the caller its token was rejected while the real cause is an
+// unreachable database, and the driver detail must not reach the client.
+func baoSessionFailure(err error) (int, string) {
+	if errors.Is(err, store.ErrUnauthorized) {
+		return http.StatusForbidden, "permission denied"
+	}
+	return http.StatusInternalServerError, "failed to look up token"
 }
 
 // baoAllow reports whether a capability check let the request through and
@@ -117,8 +130,15 @@ func (s *Server) baoUserpassLogin(w http.ResponseWriter, r *http.Request) {
 	if s.rejectRateLimitedLogin(w, r, rateKey, true) {
 		return
 	}
-	user, err := s.store.Authenticate(r.Context(), username, input.Password)
+	user, err := s.authenticate(r.Context(), username, input.Password)
 	if err != nil {
+		// A credential lookup that could not run says nothing about the
+		// credential. Counting it as a failed attempt locks the account out of
+		// the login window for an outage the user did not cause.
+		if !errors.Is(err, store.ErrUnauthorized) {
+			baoError(w, http.StatusInternalServerError, "failed to authenticate")
+			return
+		}
 		if s.loginLimiter != nil {
 			s.loginLimiter.failed(rateKey)
 		}
