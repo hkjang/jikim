@@ -62,6 +62,39 @@ func (s *Server) withBaoAuth(next http.Handler) http.Handler {
 	})
 }
 
+// baoAllow reports whether a capability check let the request through and
+// writes the OpenBao-shaped failure itself when it did not. A policy lookup
+// that could not run is a server fault, not a denial: reporting it as
+// "permission denied" sends the caller hunting a policy mistake while the real
+// cause is an unreachable database.
+func baoAllow(w http.ResponseWriter, allowed bool, err error) bool {
+	if err != nil {
+		status, message := baoAccessFailure(err)
+		baoError(w, status, message)
+		return false
+	}
+	if !allowed {
+		baoError(w, http.StatusForbidden, "permission denied")
+		return false
+	}
+	return true
+}
+
+// baoAccessFailure maps a failed capability lookup to its OpenBao-facing status
+// and message. Only ErrInvalid carries a caller-safe explanation, the other
+// store sentinels stay a denial as OpenBao reports it, and anything else is a
+// server fault whose driver detail must not reach the client.
+func baoAccessFailure(err error) (int, string) {
+	switch {
+	case errors.Is(err, store.ErrInvalid):
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrForbidden), errors.Is(err, store.ErrUnauthorized):
+		return http.StatusForbidden, "permission denied"
+	default:
+		return http.StatusInternalServerError, "failed to check permissions"
+	}
+}
+
 func (s *Server) baoHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -96,7 +129,11 @@ func (s *Server) baoUserpassLogin(w http.ResponseWriter, r *http.Request) {
 		s.loginLimiter.succeeded(rateKey)
 	}
 	security, err := s.store.SecurityConfig(r.Context())
-	if err != nil || (!security.AllowLocalLogin && user.Role != "admin") {
+	if err != nil {
+		baoError(w, http.StatusInternalServerError, "failed to read security settings")
+		return
+	}
+	if !security.AllowLocalLogin && user.Role != "admin" {
 		baoError(w, http.StatusForbidden, "local login is disabled")
 		return
 	}
@@ -169,8 +206,7 @@ func (s *Server) baoKVRead(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.PathValue("path"), "/")
 	session, _ := sessionFrom(r)
 	allowed, err := s.store.CanAccess(r.Context(), session.User, path, "read")
-	if err != nil || !allowed {
-		baoError(w, http.StatusForbidden, "permission denied")
+	if !baoAllow(w, allowed, err) {
 		return
 	}
 	requestedVersion, err := requestedOpenBaoVersion(r.URL.Query().Get("version"))
@@ -249,8 +285,7 @@ func (s *Server) baoKVWrite(w http.ResponseWriter, r *http.Request) {
 		capability = "create"
 	}
 	allowed, err := s.store.CanAccess(r.Context(), session.User, path, capability)
-	if err != nil || !allowed {
-		baoError(w, http.StatusForbidden, "permission denied")
+	if !baoAllow(w, allowed, err) {
 		return
 	}
 	secret, err := s.store.PutOpenBaoSecret(r.Context(), path, input.Data, session.User.ID, input.Options.CAS)
@@ -282,8 +317,7 @@ func (s *Server) baoKVDeleteLatest(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.PathValue("path"), "/")
 	session, _ := sessionFrom(r)
 	allowed, err := s.store.CanAccess(r.Context(), session.User, path, "delete")
-	if err != nil || !allowed {
-		baoError(w, http.StatusForbidden, "permission denied")
+	if !baoAllow(w, allowed, err) {
 		return
 	}
 	if err := s.store.SoftDeleteLatestOpenBaoVersion(r.Context(), path); err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -325,8 +359,7 @@ func (s *Server) baoKVMutateVersions(w http.ResponseWriter, r *http.Request, ope
 	}
 	session, _ := sessionFrom(r)
 	allowed, err := s.store.CanAccess(r.Context(), session.User, path, "update")
-	if err != nil || !allowed {
-		baoError(w, http.StatusForbidden, "permission denied")
+	if !baoAllow(w, allowed, err) {
 		return
 	}
 	switch operation {
@@ -358,8 +391,7 @@ func (s *Server) baoKVMetadata(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.PathValue("path"), "/")
 	session, _ := sessionFrom(r)
 	allowed, err := s.store.CanAccess(r.Context(), session.User, path, "read")
-	if err != nil || !allowed {
-		baoError(w, http.StatusForbidden, "permission denied")
+	if !baoAllow(w, allowed, err) {
 		return
 	}
 	metadata, err := s.store.OpenBaoKVMetadata(r.Context(), path)
@@ -380,8 +412,7 @@ func (s *Server) baoKVMetadataDelete(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.PathValue("path"), "/")
 	session, _ := sessionFrom(r)
 	allowed, err := s.store.CanAccess(r.Context(), session.User, path, "delete")
-	if err != nil || !allowed {
-		baoError(w, http.StatusForbidden, "permission denied")
+	if !baoAllow(w, allowed, err) {
 		return
 	}
 	if err := s.store.DeleteOpenBaoMetadata(r.Context(), path); err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -399,8 +430,7 @@ func (s *Server) baoKVList(w http.ResponseWriter, r *http.Request) {
 	prefix := strings.Trim(r.PathValue("path"), "/")
 	session, _ := sessionFrom(r)
 	allowed, err := s.store.CanAccess(r.Context(), session.User, strings.TrimSuffix(prefix+"/", "//"), "list")
-	if err != nil || !allowed {
-		baoError(w, http.StatusForbidden, "permission denied")
+	if !baoAllow(w, allowed, err) {
 		return
 	}
 	keys, err := s.store.ListSecretChildren(r.Context(), prefix)
@@ -566,8 +596,7 @@ func (s *Server) baoTransitEncrypt(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	session, _ := sessionFrom(r)
 	allowed, err := s.authorizeTransit(r, session.User, key, "encrypt")
-	if err != nil || !allowed {
-		baoError(w, http.StatusForbidden, "permission denied")
+	if !baoAllow(w, allowed, err) {
 		return
 	}
 	if input.BatchInput != nil {
@@ -638,8 +667,7 @@ func (s *Server) baoTransitDecrypt(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	session, _ := sessionFrom(r)
 	allowed, err := s.authorizeTransit(r, session.User, key, "decrypt")
-	if err != nil || !allowed {
-		baoError(w, http.StatusForbidden, "permission denied")
+	if !baoAllow(w, allowed, err) {
 		return
 	}
 	if input.BatchInput != nil {
