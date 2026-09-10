@@ -9,6 +9,19 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.7] - 2026-09-10
+
+### 수정
+
+- OpenBao KV·Transit 핸들러와 MCP 도구가 capability 확인에 실패한 경우까지 거부로 처리하던 오류 수정. 데이터베이스 장애로 정책 조회 자체를 수행하지 못하면 이제 `403` `permission denied`가 아니라 `500` `failed to check permissions`로 응답해 재시도 가능한 서버 장애가 정책 오설정처럼 보이지 않으며, driver 내부 문자열은 담지 않습니다. store sentinel(`ErrNotFound`, `ErrForbidden`, `ErrUnauthorized`)은 기존대로 `403` `permission denied`, `ErrInvalid`는 `400`과 사유로 응답합니다
+- MCP `transit.decrypt`가 capability 확인 실패까지 감사 기록에 `403`으로 남기던 오류 수정. 감사 `StatusCode`가 실제 실패 종류를 따릅니다
+- `POST /v1/auth/userpass/login/{username}`이 보안 설정 조회 실패를 `403` `local login is disabled`로 보고하던 오류 수정. 이제 `500` `failed to read security settings`로 분리합니다
+- MCP `secrets.metadata`가 버전 조회에 실패해도 `result`를 채워 부분 결과를 돌려주던 오류 수정
+
+### 변경
+
+- 호환성 가이드에 capability 판정 실패와 거부의 응답 구분 문서화
+
 ## [0.2.6] - 2026-09-09
 
 ### 수정
@@ -140,7 +153,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/hkjang/jikim/releases/tag/v0.2.7
 [0.2.6]: https://github.com/hkjang/jikim/releases/tag/v0.2.6
 [0.2.5]: https://github.com/hkjang/jikim/releases/tag/v0.2.5
 [0.2.4]: https://github.com/hkjang/jikim/releases/tag/v0.2.4
