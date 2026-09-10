@@ -31,6 +31,7 @@ type Server struct {
 	transitEncryptor  func(context.Context, string, string, string) (string, error)
 	transitDecryptor  func(context.Context, string, string) (string, error)
 	auditRecorder     func(context.Context, model.AuditEvent) error
+	storagePinger     func(context.Context) error
 }
 
 func New(st *store.Store, logger *slog.Logger) http.Handler {
@@ -294,10 +295,7 @@ func (s *Server) audit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recorder := &statusWriter{ResponseWriter: w}
 		next.ServeHTTP(recorder, r)
-		if !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/v1/") && r.URL.Path != "/mcp" {
-			return
-		}
-		if r.URL.Path == "/api/v1/audit" {
+		if !auditablePath(r.URL.Path) {
 			return
 		}
 		status := recorder.status
@@ -317,6 +315,18 @@ func (s *Server) audit(next http.Handler) http.Handler {
 			s.logger.Warn("감사 로그 저장 실패", "error", err, "request_id", event.RequestID)
 		}
 	})
+}
+
+// auditablePath reports whether a request path belongs in the audit log. The
+// API surfaces do; reading the audit log itself does not, and neither does
+// /v1/sys/health — it is the OpenBao-shaped twin of /healthz and /readyz, an
+// unauthenticated probe that touches no resource, and auditing it writes one
+// row per poll including through the outage the probe exists to report.
+func auditablePath(path string) bool {
+	if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/v1/") && path != "/mcp" {
+		return false
+	}
+	return path != "/api/v1/audit" && path != "/v1/sys/health"
 }
 
 func auditAction(r *http.Request) string {
@@ -349,11 +359,20 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	if err := s.store.Ping(ctx); err != nil {
+	if err := s.pingStorage(ctx); err != nil {
 		writeError(w, r, http.StatusServiceUnavailable, "not_ready", "데이터베이스 연결을 확인할 수 없습니다")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ready"})
+}
+
+// pingStorage reports whether the PostgreSQL backend answers. Every readiness
+// answer jikim gives depends on it, so the check goes through one seam.
+func (s *Server) pingStorage(ctx context.Context) error {
+	if s.storagePinger != nil {
+		return s.storagePinger(ctx)
+	}
+	return s.store.Ping(ctx)
 }
 
 func errorStatus(err error) (int, string) {
