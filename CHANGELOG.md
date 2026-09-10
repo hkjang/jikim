@@ -9,6 +9,19 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.8] - 2026-09-10
+
+### 수정
+
+- 인증·세션 조회가 데이터베이스 장애까지 자격증명 거부와 세션 만료로 보고하던 오류 수정. `Authenticate`와 `SessionByToken`이 조회 실패를 원인과 무관하게 `ErrUnauthorized`로 접던 것을 행 없음만 sentinel로 남기도록 바꿔, 재시도 가능한 서버 장애가 종결 오류처럼 보이지 않습니다
+- 관리 API 인증 미들웨어와 `GET /api/v1/session`이 조회 불가 상황에 `401`·`403`을 반환하던 오류 수정. 이제 `500`으로 응답합니다
+- `/v1/*` 토큰 인증이 만료·폐기된 토큰과 조회 불가를 함께 `403` `permission denied`로 처리하던 오류 수정. 조회 자체에 실패하면 `500` `failed to look up token`으로 분리합니다
+- `POST /api/v1/login`과 `POST /v1/auth/userpass/login/{username}`이 데이터베이스 장애를 로그인 실패 시도로 계산해 5분 창 동안 계정을 잠그던 오류 수정. 장애는 실패 시도에 계산하지 않고 각각 `500`으로 응답하며 driver 내부 문자열은 담지 않습니다
+
+### 변경
+
+- 호환성 가이드에 토큰 없음·만료·조회 불가의 응답 구분과 로그인 실패 제한 계산 기준 문서화
+
 ## [0.2.7] - 2026-09-10
 
 ### 수정
@@ -153,7 +166,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/hkjang/jikim/releases/tag/v0.2.8
 [0.2.7]: https://github.com/hkjang/jikim/releases/tag/v0.2.7
 [0.2.6]: https://github.com/hkjang/jikim/releases/tag/v0.2.6
 [0.2.5]: https://github.com/hkjang/jikim/releases/tag/v0.2.5
