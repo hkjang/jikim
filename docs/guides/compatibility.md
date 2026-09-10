@@ -42,6 +42,7 @@ jikim `v0.2.7`은 **OpenBao 전체 호환 제품이라고 주장하지 않습니
 
 - mount 이름은 `secret`으로 고정됩니다. `sys/mounts`, mount tune, mount별 `max_versions`, `cas_required`, `delete_version_after` 설정은 구현하지 않습니다.
 - 인증에는 `X-Vault-Token`, Bearer 또는 jikim 세션 쿠키로 확인 가능한 jikim 세션을 사용합니다. OpenBao token/policy 저장 모델을 그대로 구현한 것이 아닙니다.
+- 토큰이 없으면 `401`과 `missing client token`, 만료·폐기된 토큰은 `403`과 `permission denied`입니다. 토큰 조회 자체를 수행하지 못한 경우(예: DB 장애)는 거부가 아니라 서버 장애이므로 `500`과 `failed to look up token`이며, 같은 이유로 `/v1/auth/userpass/login/:username`은 자격증명 조회에 실패하면 `400`이 아니라 `500`과 `failed to authenticate`를 돌려주고 로그인 실패 제한에도 계산하지 않습니다.
 - 권한은 jikim capability로 판정합니다. data 읽기와 metadata 조회는 `read`, 목록은 `list`, 새 key는 `create`, 기존 key 쓰기와 버전 delete/undelete/destroy는 `update`, 최신 버전 및 전체 metadata 삭제는 `delete`가 필요합니다.
 - capability가 없으면 `403`과 `permission denied`입니다. capability 판정 자체를 수행하지 못한 경우(예: DB 장애)는 거부가 아니라 서버 장애이므로 `500`과 `failed to check permissions`이며, 이 판정은 Transit 경로에도 동일하게 적용됩니다.
 - 응답은 OpenBao형 `request_id`, `data` 또는 `auth`, `errors` envelope의 구현된 필드를 반환하지만 lease, wrap, mount 의미는 완전하지 않습니다.

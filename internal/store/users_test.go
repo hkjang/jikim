@@ -1,9 +1,12 @@
 package store
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/hkjang/jikim/internal/model"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestPersonalKeyDecryptPermissionCannotBeRemoved(t *testing.T) {
@@ -40,5 +43,23 @@ func TestAdminCannotMutateSelfThroughUserManagement(t *testing.T) {
 	}
 	if err := validateAdminActor("target", "actor"); err != nil {
 		t.Fatalf("different target rejected: %v", err)
+	}
+}
+
+// Authenticate and SessionByToken both answer "no" by returning ErrUnauthorized.
+// A query that could not run has no answer: folding it into the same sentinel
+// reports a database outage as a rejected credential or an expired session.
+func TestLookupFailedSeparatesMissingRowFromDatabaseFailure(t *testing.T) {
+	if lookupFailed(nil) {
+		t.Fatal("a successful lookup was treated as a failure")
+	}
+	if lookupFailed(pgx.ErrNoRows) {
+		t.Fatal("a missing row was treated as a database failure")
+	}
+	if lookupFailed(fmt.Errorf("query: %w", pgx.ErrNoRows)) {
+		t.Fatal("a wrapped missing row was treated as a database failure")
+	}
+	if !lookupFailed(errors.New(`failed to connect to "host=postgres.internal": SQLSTATE 08006`)) {
+		t.Fatal("a database outage was treated as a missing row")
 	}
 }

@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -25,6 +24,8 @@ type Server struct {
 	loginLimiter      *loginRateLimiter
 	aiLimiter         *aiRequestLimiter
 	webhookSlots      chan struct{}
+	sessionResolver   func(context.Context, string) (model.Session, error)
+	authenticator     func(context.Context, string, string) (model.User, error)
 	transitAuthorizer func(context.Context, model.User, string, string) (bool, error)
 	secretAuthorizer  func(context.Context, model.User, string, string) (bool, error)
 	transitEncryptor  func(context.Context, string, string, string) (string, error)
@@ -158,8 +159,15 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			writeError(w, r, http.StatusUnauthorized, "unauthorized", "로그인이 필요합니다")
 			return
 		}
-		session, err := s.store.SessionByToken(r.Context(), token)
+		session, err := s.resolveSession(r.Context(), token)
 		if err != nil {
+			// A token that no longer resolves is a 401, but a lookup that could
+			// not run at all is a server fault: telling the caller to log in
+			// again hides the outage and drops a valid session.
+			if !errors.Is(err, store.ErrUnauthorized) {
+				s.storeError(w, r, err)
+				return
+			}
 			writeError(w, r, http.StatusUnauthorized, "unauthorized", "세션이 만료되었거나 올바르지 않습니다")
 			return
 		}
@@ -181,6 +189,20 @@ func requestToken(r *http.Request) string {
 		token = strings.TrimSpace(r.Header.Get("X-Vault-Token"))
 	}
 	return token
+}
+
+func (s *Server) resolveSession(ctx context.Context, token string) (model.Session, error) {
+	if s.sessionResolver != nil {
+		return s.sessionResolver(ctx, token)
+	}
+	return s.store.SessionByToken(ctx, token)
+}
+
+func (s *Server) authenticate(ctx context.Context, username, rawPassword string) (model.User, error) {
+	if s.authenticator != nil {
+		return s.authenticator(ctx, username, rawPassword)
+	}
+	return s.store.Authenticate(ctx, username, rawPassword)
 }
 
 func (s *Server) requireRoles(next http.Handler, roles ...string) http.Handler {
@@ -360,5 +382,3 @@ func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	writeError(w, r, status, code, message)
 }
-
-var _ = fmt.Sprintf
