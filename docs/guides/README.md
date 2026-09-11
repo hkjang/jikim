@@ -1,6 +1,6 @@
-# jikim v0.2.9 가이드
+# jikim v0.2.10 가이드
 
-jikim은 애플리케이션 중심 Secret 관리와 폐쇄망 배포를 목표로 하는 Go + React 서비스입니다. 이 문서는 **v0.2.9 구현 프로파일**을 기준으로 하며, 로드맵 기능을 현재 지원 기능처럼 설명하지 않습니다.
+jikim은 애플리케이션 중심 Secret 관리와 폐쇄망 배포를 목표로 하는 Go + React 서비스입니다. 이 문서는 **v0.2.10 구현 프로파일**을 기준으로 하며, 로드맵 기능을 현재 지원 기능처럼 설명하지 않습니다.
 
 | 문서 | 대상 | 내용 |
 | --- | --- | --- |
@@ -14,12 +14,12 @@ jikim은 애플리케이션 중심 Secret 관리와 폐쇄망 배포를 목표�
 ## 공통 운영 계약
 
 - 서비스명: `jikim`
-- 현재 버전: `v0.2.9`
+- 현재 버전: `v0.2.10`
 - 고정 포트: `8080`
-- 이미지: `jikim:v0.2.9`
-- 오프라인 번들: `jikim-v0.2.9.tar.gz`
+- 이미지: `jikim:v0.2.10`
+- 오프라인 번들: `jikim-v0.2.10.tar.gz`
 - 필수 애플리케이션 환경변수: `POSTGRES_DSN`, `BOOTSTRAP_ADMIN`, `BOOTSTRAP_ADMIN_PASSWORD`, `ENCRYPTION_KEY`
 - 상태 확인: `GET /healthz`, `GET /readyz`
-- OpenBao 호환 상태 확인: `GET /v1/sys/health` — v0.2.9 제한 프로파일
+- OpenBao 호환 상태 확인: `GET /v1/sys/health` — v0.2.10 제한 프로파일
 
 운영 전에는 GitHub Release의 체크섬, 릴리스 노트, 이 문서의 호환성 표를 함께 확인하십시오.

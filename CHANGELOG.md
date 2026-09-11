@@ -9,6 +9,14 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.10] - 2026-09-11
+
+### 문서
+
+- 실제 화면 캡처를 실은 사용자 가이드(`docs/USER_GUIDE.md`)와 관리자 가이드(`docs/ADMIN_GUIDE.md`)를 추가하고 같은 내용의 PDF를 함께 제공. 사용자 가이드는 로그인부터 첫 시크릿 저장까지, 화면별 사용법, 자주 하는 작업과 서비스가 실제로 돌려주는 오류 문구를 다루고, 관리자 가이드는 구성 요소, 릴리스 번들 설치, `internal/config/config.go` 기준 환경변수 전체 표, 역할과 정책, 운영, 서버가 실제로 남기는 로그 기준의 장애 대응과 바꿔야 할 보안 기본값을 다룹니다
+- 기존 `docs/guides/user-guide.md`·`docs/guides/admin-guide.md`는 새 문서로 안내하는 포인터로 정리하고 README, 문서 허브, `guides/index.html`, `llms.txt`, 홍보 페이지와 앱 내 빠른 사용 가이드가 새 경로를 가리키도록 갱신
+- 화면 갤러리를 `v0.2.9` 이미지로 전부 다시 캡처. 애플리케이션 목록, 정책 목록, 키 목록이 빈 화면으로 찍히지 않도록 E2E 전용 컨테이너와 전용 PostgreSQL에 데모 fixture(가짜 값, `example.internal` 주소만 사용)를 먼저 넣고, 감사 로그 화면은 이벤트 수만큼 길어지지 않도록 viewport 높이로 캡처
+
 ## [0.2.9] - 2026-09-10
 
 ### 수정
@@ -182,7 +190,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.9...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.10...HEAD
+[0.2.10]: https://github.com/hkjang/jikim/releases/tag/v0.2.10
 [0.2.9]: https://github.com/hkjang/jikim/releases/tag/v0.2.9
 [0.2.8]: https://github.com/hkjang/jikim/releases/tag/v0.2.8
 [0.2.7]: https://github.com/hkjang/jikim/releases/tag/v0.2.7
