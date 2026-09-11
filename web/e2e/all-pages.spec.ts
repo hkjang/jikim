@@ -41,6 +41,62 @@ async function waitForRenderedPage(page: Page) {
   await expect(page.locator('main .mantine-Loader-root')).toHaveCount(0);
 }
 
+// 감사 로그는 조회한 이벤트를 모두 한 화면에 그리므로 fullPage 캡처가 계속 길어집니다.
+// 가이드와 갤러리에서 읽을 수 있는 그림이 되도록 이 화면만 viewport 높이로 찍습니다.
+const viewportOnlyShots = new Set(['audit']);
+
+// 갤러리 계약은 "빈 화면을 찍지 않는다"이므로 목록 화면에 보일 비운영 fixture를 먼저 만듭니다.
+// 값은 모두 가짜이며 example.internal 주소와 데모 계정만 사용합니다.
+const fixtureApplications = [
+  { name: 'payment-api', owner: '결제개발팀', criticality: 'Critical', environment: 'PRD', repository: 'https://git.example.internal/demo/payment-api', description: '데모 결제 API' },
+  { name: 'portal-web', owner: '포털개발팀', criticality: 'High', environment: 'STG', repository: 'https://git.example.internal/demo/portal-web', description: '데모 고객 포털' },
+  { name: 'batch-worker', owner: '플랫폼개발팀', criticality: 'Normal', environment: 'DEV', repository: '', description: '데모 야간 배치' },
+] as const;
+
+const fixtureSecrets = [
+  { path: 'payment/production/database', description: '데모 결제 DB 자격 증명', tags: ['database', 'demo'], metadata: { application: 'payment-api', environment: 'PRD', owner: '결제개발팀' }, data: { username: 'demo-payment', password: 'masked-in-captures' } },
+  { path: 'portal/staging/oauth-client', description: '데모 포털 OAuth Client', tags: ['oauth', 'demo'], metadata: { application: 'portal-web', environment: 'STG', owner: '포털개발팀' }, data: { client_id: 'demo-portal', client_secret: 'masked-in-captures' } },
+  { path: 'batch/dev/object-storage', description: '데모 배치 오브젝트 스토리지 키', tags: ['storage', 'demo'], metadata: { application: 'batch-worker', environment: 'DEV', owner: '플랫폼개발팀' }, data: { access_key: 'demo-batch', secret_key: 'masked-in-captures' } },
+] as const;
+
+const fixturePolicies = [
+  { name: '결제 운영 조회', description: '데모 결제 운영 경로 조회 전용', rules: { paths: [{ path: 'payment/production/*', capabilities: ['read', 'list'] }] } },
+  { name: '포털 스테이징 편집', description: '데모 포털 스테이징 경로 편집', rules: { paths: [{ path: 'portal/staging/*', capabilities: ['create', 'read', 'update', 'list'] }] } },
+] as const;
+
+const fixtureUsers = [
+  { username: 'demo-manager', display_name: '검토 담당자(데모)', email: 'demo-manager@example.internal', role: 'manager', password: 'Demo-Only-Password-2026!' },
+  { username: 'demo-auditor', display_name: '감사 담당자(데모)', email: 'demo-auditor@example.internal', role: 'auditor', password: 'Demo-Only-Password-2026!' },
+] as const;
+
+const fixtureKeys = [
+  { name: 'payment-card-token', algorithm: 'AES-256-GCM' },
+  { name: 'portal-session', algorithm: 'AES-256-GCM' },
+] as const;
+
+// 캡처 대상은 매 실행마다 새로 만드는 E2E 전용 컨테이너와 전용 PostgreSQL이며
+// 전역 설정은 건드리지 않습니다. 되돌릴 상태를 만들지 않는 것이 복원보다 안전합니다.
+async function seedCaptureFixtures(page: Page): Promise<string | undefined> {
+  const created = async (url: string, data: unknown) => {
+    const response = await page.request.post(url, { data });
+    expect(response.ok(), `${url} fixture 생성 실패: ${response.status()}`).toBe(true);
+    const body = await response.json();
+    return body?.data ?? body;
+  };
+  for (const application of fixtureApplications) await created('/api/v1/applications', application);
+  for (const secret of fixtureSecrets) await created('/api/v1/secrets', secret);
+  for (const policy of fixturePolicies) await created('/api/v1/policies', policy);
+  for (const user of fixtureUsers) await created('/api/v1/users', user);
+  for (const key of fixtureKeys) await created('/api/v1/keys', key);
+  await created('/api/v1/tokens', { name: '데모 배치 연동 토큰', ttl_seconds: 3600 });
+  const detail = await created('/api/v1/secrets', {
+    path: 'e2e/demo/database', description: 'E2E 화면 캡처용', tags: ['fixture'],
+    metadata: { application: 'e2e-app', environment: 'DEV', owner: 'E2E' },
+    data: { username: 'demo-user', password: 'masked-in-captures' },
+  });
+  return detail?.id;
+}
+
 test('로그인 화면', async ({ page }) => {
   await page.goto('/login');
   await expect(page.getByRole('heading', { name: '안전하게 로그인하세요' })).toBeVisible();
@@ -73,11 +129,7 @@ test('모든 관리 화면이 직접 URL과 새로 고침에서 복원된다', a
   await page.getByRole('button', { name: '프로필 메뉴' }).click();
   await expectServiceVersion(page);
   await page.screenshot({ path: path.resolve('../docs/screenshots/profile-menu.png'), fullPage: true, animations: 'disabled' });
-  const secretResponse = await page.request.post('/api/v1/secrets', {
-    data: { path: 'e2e/demo/database', description: 'E2E 화면 캡처용', tags: ['fixture'], metadata: { application: 'e2e-app', environment: 'DEV', owner: 'E2E' }, data: { username: 'demo-user', password: 'masked-in-captures' } },
-  });
-  const secretBody = secretResponse.ok() ? await secretResponse.json() : {};
-  const secretID = secretBody?.data?.id || secretBody?.id;
+  const secretID = await seedCaptureFixtures(page);
   const routes = secretID ? [...pages, ['secret-detail', `/secrets/${secretID}`] as const] : pages;
   for (const [name, route] of routes) {
     await page.goto(route);
@@ -90,7 +142,7 @@ test('모든 관리 화면이 직접 URL과 새로 고침에서 복원된다', a
       await expect(page.locator('main')).not.toContainText(/불러오지 못했습니다|요청을 처리하지 못했습니다|페이지를 표시하지 못했습니다/);
     }
     await page.evaluate(() => document.fonts.ready);
-    await page.screenshot({ path: path.resolve(`../docs/screenshots/${name}.png`), fullPage: true, animations: 'disabled' });
+    await page.screenshot({ path: path.resolve(`../docs/screenshots/${name}.png`), fullPage: !viewportOnlyShots.has(name), animations: 'disabled' });
   }
   expect(pageErrors, `브라우저 pageerror: ${pageErrors.join(' | ')}`).toEqual([]);
   expect(consoleErrors, `브라우저 console.error: ${consoleErrors.join(' | ')}`).toEqual([]);

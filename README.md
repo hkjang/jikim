@@ -165,8 +165,8 @@ API 응답과 요청 ID, SSE 스트리밍, MCP 도구 목록은 [API 및 MCP 가
 ## 문서
 
 - [문서 허브](docs/guides/README.md)
-- [관리자 가이드](docs/guides/admin-guide.md)
-- [사용자 가이드](docs/guides/user-guide.md)
+- [사용자 가이드](docs/USER_GUIDE.md) · [PDF](docs/USER_GUIDE.pdf)
+- [관리자 가이드](docs/ADMIN_GUIDE.md) · [PDF](docs/ADMIN_GUIDE.pdf)
 - [API 및 MCP](docs/guides/api-guide.md)
 - [오프라인 설치](docs/guides/offline-install.md)
 - [보안 운영](docs/guides/security.md)

@@ -25,8 +25,8 @@
 
 ## 문서
 
-- 관리자 가이드: https://github.com/hkjang/jikim/blob/main/docs/guides/admin-guide.md
-- 사용자 가이드: https://github.com/hkjang/jikim/blob/main/docs/guides/user-guide.md
+- 관리자 가이드: https://github.com/hkjang/jikim/blob/main/docs/ADMIN_GUIDE.md
+- 사용자 가이드: https://github.com/hkjang/jikim/blob/main/docs/USER_GUIDE.md
 - API 가이드: https://github.com/hkjang/jikim/blob/main/docs/guides/api-guide.md
 - 오프라인 설치: https://github.com/hkjang/jikim/blob/main/docs/guides/offline-install.md
 - 보안 가이드: https://github.com/hkjang/jikim/blob/main/docs/guides/security.md
