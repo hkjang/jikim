@@ -16,6 +16,15 @@ func TestIntegrationSettingsRequireCompleteSecureConfiguration(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("valid OIDC rejected: %v", err)
 	}
+	if err := ValidateSetting("oidc", map[string]any{"auto_login": "true"}); err == nil {
+		t.Fatal("string auto_login was accepted")
+	}
+	if err := ValidateSetting("oidc", map[string]any{
+		"enabled": true, "issuer_url": "https://id.example/realms/jikim", "client_id": "jikim",
+		"redirect_url": "https://jikim.example/api/v1/oidc/callback", "auto_login": true,
+	}); err != nil {
+		t.Fatalf("OIDC with auto_login rejected: %v", err)
+	}
 	if err := ValidateSetting("ai", map[string]any{"enabled": true, "base_url": "http://10.0.0.5:8000", "model": "local"}); err == nil {
 		t.Fatal("insecure non-loopback AI URL was accepted without opt-in")
 	}

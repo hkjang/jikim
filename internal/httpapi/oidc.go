@@ -24,6 +24,11 @@ type oidcState struct {
 	FrontendRedirect string    `json:"frontend_redirect"`
 	BackendRedirect  string    `json:"backend_redirect"`
 	IssuedAt         time.Time `json:"issued_at"`
+	// Silent records that this attempt was started with prompt=none, so the
+	// callback can tell a provider refusal (no session yet) from a real failure.
+	Silent bool `json:"silent,omitempty"`
+	// ReturnTo is the same-origin SPA path a deep-linked visitor came from.
+	ReturnTo string `json:"return_to,omitempty"`
 }
 
 type oidcDiscovery struct {
@@ -42,7 +47,7 @@ func (s *Server) oidcPublicConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeData(w, http.StatusOK, map[string]any{
 		"enabled": cfg.Enabled, "issuer_url": cfg.IssuerURL, "client_id": cfg.ClientID,
-		"scopes": cfg.Scopes, "login_url": "/api/v1/oidc/login",
+		"scopes": cfg.Scopes, "login_url": "/api/v1/oidc/login", "auto_login": cfg.Enabled && cfg.AutoLogin,
 	})
 }
 
@@ -157,7 +162,8 @@ func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stateValue := oidcState{State: state, Nonce: nonce, Verifier: verifier,
-		FrontendRedirect: frontendRedirect, BackendRedirect: backendRedirect, IssuedAt: time.Now().UTC()}
+		FrontendRedirect: frontendRedirect, BackendRedirect: backendRedirect, IssuedAt: time.Now().UTC(),
+		Silent: silentOIDCRequest(cfg, r), ReturnTo: safeOIDCReturnTo(r.URL.Query().Get("return_to"))}
 	sealed, err := s.store.SealOIDCState(stateValue)
 	if err != nil {
 		s.storeError(w, r, err)
@@ -167,16 +173,65 @@ func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: 600})
 	oauthConfig := oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret,
 		Endpoint: provider.Endpoint(), RedirectURL: backendRedirect, Scopes: oidcScopes(cfg.Scopes)}
-	challenge := sha256.Sum256([]byte(verifier))
-	authURL := oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOnline,
-		oauth2.SetAuthURLParam("nonce", nonce),
-		oauth2.SetAuthURLParam("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:])),
-		oauth2.SetAuthURLParam("code_challenge_method", "S256"))
+	authURL := oauthConfig.AuthCodeURL(state, oidcAuthCodeOptions(stateValue)...)
 	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+// silentOIDCRequest reports whether this login should be started with
+// prompt=none. The query parameter alone is not enough: unless the
+// administrator enabled auto_login, the request is silently downgraded to an
+// ordinary login so nobody can change the flow by editing the address.
+func silentOIDCRequest(cfg store.OIDCConfig, r *http.Request) bool {
+	return cfg.AutoLogin && r.URL.Query().Get("prompt") == "none"
+}
+
+// oidcAuthCodeOptions builds the authorization request parameters. prompt=none
+// asks the provider to answer from an existing session only; it never renders
+// a screen, so either a code comes straight back or error=login_required does.
+func oidcAuthCodeOptions(state oidcState) []oauth2.AuthCodeOption {
+	challenge := sha256.Sum256([]byte(state.Verifier))
+	options := []oauth2.AuthCodeOption{oauth2.AccessTypeOnline,
+		oauth2.SetAuthURLParam("nonce", state.Nonce),
+		oauth2.SetAuthURLParam("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:])),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256")}
+	if state.Silent {
+		options = append(options, oauth2.SetAuthURLParam("prompt", "none"))
+	}
+	return options
+}
+
+// safeOIDCReturnTo keeps only a same-origin SPA path: it must start with "/"
+// and not with "//", and must not parse as anything carrying a scheme or host.
+// Anything else collapses to "" so the login flow can never bounce a visitor
+// off-site.
+func safeOIDCReturnTo(value string) string {
+	if value == "" || !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") ||
+		strings.HasPrefix(value, "/\\") || strings.ContainsAny(value, "\r\n") {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.User != nil {
+		return ""
+	}
+	// The callback and login screens are never a place to return to; landing
+	// there again is the most common source of a redirect loop.
+	if parsed.Path == "/login" || parsed.Path == "/oidc/callback" {
+		return ""
+	}
+	return value
 }
 
 func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	if providerError := r.URL.Query().Get("error"); providerError != "" {
+		// A silent attempt that comes back with login_required is not a
+		// failure: the provider simply had no session. Send the browser to the
+		// login screen with the marker it uses to stop retrying, so a signed-out
+		// visitor is not bounced between the provider and the app in a loop.
+		if state, silent := s.silentOIDCAttempt(r); silent {
+			clearOIDCStateCookie(w, r)
+			http.Redirect(w, r, silentRefusalLocation(state.ReturnTo), http.StatusFound)
+			return
+		}
 		redirectOIDCCallbackError(w, r, "oidc_provider_error", "OIDC 공급자가 로그인을 완료하지 않았습니다")
 		return
 	}
@@ -266,8 +321,53 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.Parse(state.FrontendRedirect)
 	query := target.Query()
 	query.Set("code", loginCode)
+	if returnTo := safeOIDCReturnTo(state.ReturnTo); returnTo != "" {
+		query.Set("return_to", returnTo)
+	}
 	target.RawQuery = query.Encode()
 	http.Redirect(w, r, target.String(), http.StatusFound)
+}
+
+// silentOIDCAttempt reports whether the state cookie on this callback belongs
+// to a prompt=none attempt. The state itself is validated by the caller only on
+// the success path; here a missing, expired, or mismatched state simply means
+// "not silent", which falls through to the ordinary provider error screen.
+func (s *Server) silentOIDCAttempt(r *http.Request) (oidcState, bool) {
+	cookie, err := r.Cookie("jikim_oidc_state")
+	if err != nil || cookie.Value == "" {
+		return oidcState{}, false
+	}
+	var state oidcState
+	if err := s.openOIDCState(cookie.Value, &state); err != nil {
+		return oidcState{}, false
+	}
+	if subtle.ConstantTimeCompare([]byte(state.State), []byte(r.URL.Query().Get("state"))) != 1 {
+		return oidcState{}, false
+	}
+	if !state.Silent || time.Since(state.IssuedAt) > 10*time.Minute {
+		return oidcState{}, false
+	}
+	return state, true
+}
+
+// silentRefusalLocation is the login screen with the marker that stops the
+// browser from retrying. The deep link travels along so a manual login still
+// lands where the visitor was headed.
+func silentRefusalLocation(returnTo string) string {
+	target := &url.URL{Path: "/login"}
+	query := url.Values{"sso": {"none"}}
+	if returnTo = safeOIDCReturnTo(returnTo); returnTo != "" {
+		query.Set("return_to", returnTo)
+	}
+	target.RawQuery = query.Encode()
+	return target.String()
+}
+
+func (s *Server) openOIDCState(sealed string, value any) error {
+	if s.oidcStateOpener != nil {
+		return s.oidcStateOpener(sealed, value)
+	}
+	return s.store.OpenOIDCState(sealed, value)
 }
 
 // oidcLogout terminates the local session before sending OIDC users to the

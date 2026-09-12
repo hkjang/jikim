@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../lib/api';
+import { markSignedOut } from '../lib/silentSso';
 import { ErrorBoundary } from './ErrorBoundary';
 import { APP_VERSION } from '../lib/format';
 import { useAuth } from '../contexts/AuthContext';
@@ -146,6 +147,8 @@ export function AppLayout() {
   )).slice(0, 9), [publicSettings.data?.approval_enabled, query, user?.role]);
 
   const doLogout = async () => {
+    // 스스로 로그아웃한 뒤에는 조용한 SSO 로 다시 들어가지 않는다.
+    markSignedOut();
     if (user?.auth_source === 'oidc') {
       window.location.assign('/api/v1/oidc/logout');
       return;

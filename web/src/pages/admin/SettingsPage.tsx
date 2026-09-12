@@ -76,6 +76,7 @@ interface OidcSettings {
   role_claim: string;
   username_claim: string;
   allow_insecure_http: boolean;
+  auto_login: boolean;
 }
 
 interface AiSettings {
@@ -261,6 +262,7 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
       role_claim: stringValue(oidc.role_claim, 'roles'),
       username_claim: stringValue(oidc.username_claim, 'preferred_username'),
       allow_insecure_http: booleanValue(oidc.allow_insecure_http),
+      auto_login: booleanValue(oidc.auto_login),
     },
     ai: {
       enabled: booleanValue(ai.enabled),
@@ -322,6 +324,7 @@ function settingsPayload(settings: AdminSettings, redirectUrl: string): Record<s
     role_claim: settings.oidc.role_claim.trim(),
     username_claim: settings.oidc.username_claim.trim(),
     allow_insecure_http: settings.oidc.allow_insecure_http,
+    auto_login: settings.oidc.auto_login,
     redirect_url: redirectUrl,
     clear_client_secret: settings.oidc.clear_client_secret,
   };
@@ -883,6 +886,13 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     onChange={(event) => updateOidc({ role_claim: event.currentTarget.value })}
                   />
                 </SimpleGrid>
+                <Switch
+                  checked={settings.oidc.auto_login}
+                  disabled={!settings.oidc.enabled}
+                  onChange={(event) => updateOidc({ auto_login: event.currentTarget.checked })}
+                  label="자동 로그인(조용한 SSO)"
+                  description="기본값은 OFF입니다. 켜면 Keycloak에 이미 로그인한 사용자는 로그인 화면 없이 바로 본 화면으로 들어갑니다(prompt=none, 탭마다 한 번만 시도). 세션이 없거나 스스로 로그아웃했으면 평소처럼 로그인 화면이 뜹니다."
+                />
                 <Switch
                   checked={settings.oidc.allow_insecure_http}
                   onChange={(event) => updateOidc({ allow_insecure_http: event.currentTarget.checked })}

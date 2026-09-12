@@ -1,6 +1,10 @@
+import { useEffect } from 'react';
 import { Center, Loader, Stack, Text } from '@mantine/core';
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { get } from './lib/api';
+import { beginSilentSso, shouldAttemptSilentSso, silentSsoAttempted, type SilentSsoSettings } from './lib/silentSso';
 import { AppLayout } from './components/AppLayout';
 import { LoginPage } from './pages/LoginPage';
 import { OidcCallbackPage } from './pages/OidcCallbackPage';
@@ -24,7 +28,16 @@ import { NotFoundPage } from './pages/NotFoundPage';
 function ProtectedRoute() {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <Center mih="100vh"><Stack align="center"><Loader /><Text c="dimmed">안전한 세션을 확인하고 있습니다.</Text></Stack></Center>;
+  const guest = !loading && !user;
+  // 로그인 화면을 보여 주기 전에 관리자가 auto_login 을 켰는지 본다. 켜져 있으면 제공자의
+  // 기존 세션으로만 답하는 prompt=none 시도를 한 탭 세션에 한 번 하고 그 자리로 돌아온다.
+  const settings = useQuery({ queryKey: ['public-settings'], queryFn: () => get<SilentSsoSettings>('/settings/public'), retry: false, enabled: guest });
+  const silent = guest && !settings.isPending && shouldAttemptSilentSso(settings.data, location);
+  useEffect(() => {
+    if (silent && !silentSsoAttempted()) beginSilentSso(`${location.pathname}${location.search}`);
+  }, [silent, location.pathname, location.search]);
+  if (loading || (guest && settings.isPending)) return <Center mih="100vh"><Stack align="center"><Loader /><Text c="dimmed">안전한 세션을 확인하고 있습니다.</Text></Stack></Center>;
+  if (silent) return <Center mih="100vh"><Stack align="center"><Loader /><Text c="dimmed">Keycloak 세션을 확인하고 있습니다.</Text></Stack></Center>;
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
   return <Outlet />;
 }
