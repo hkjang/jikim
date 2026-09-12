@@ -1,6 +1,6 @@
 # API 및 MCP 가이드
 
-이 문서는 jikim `v0.2.11` HTTP 인터페이스의 공통 계약을 설명합니다. 구현의 최종 기준은 해당 릴리스 소스와 자동 테스트이며, 이 문서에 없는 OpenBao API가 동작한다고 가정하면 안 됩니다.
+이 문서는 jikim `v0.2.12` HTTP 인터페이스의 공통 계약을 설명합니다. 구현의 최종 기준은 해당 릴리스 소스와 자동 테스트이며, 이 문서에 없는 OpenBao API가 동작한다고 가정하면 안 됩니다.
 
 ## API 경계
 
@@ -12,7 +12,7 @@
 | `/healthz` | 프로세스 상태 | 인증 없음 |
 | `/readyz` | PostgreSQL 포함 준비 상태 | 인증 없음 |
 
-v0.2.11은 OpenBao 전체 API 호환이나 99.9% 호환을 주장하지 않으며 OpenBao 2.6.1 differential suite도 아직 없습니다. [호환성 가이드](compatibility.md)를 먼저 확인하십시오.
+v0.2.12은 OpenBao 전체 API 호환이나 99.9% 호환을 주장하지 않으며 OpenBao 2.6.1 differential suite도 아직 없습니다. [호환성 가이드](compatibility.md)를 먼저 확인하십시오.
 
 ## 인증
 
@@ -80,7 +80,7 @@ jikim 관리 API의 성공 응답은 주로 `data` envelope를 사용합니다.
 {
   "data": {
     "name": "jikim",
-    "version": "v0.2.11",
+    "version": "v0.2.12",
     "commit": "...",
     "date": "..."
   }
@@ -114,7 +114,7 @@ curl --fail 'https://jikim.example/v1/sys/health'
 
 `/healthz` 성공이 데이터베이스 준비를 의미하지는 않습니다. 트래픽 투입 판단에는 `/readyz`를 사용합니다. OpenBao 호환 클라이언트와 Load Balancer는 같은 목적으로 `/v1/sys/health`를 사용할 수 있습니다. 이 경로는 PostgreSQL에 닿지 못하면 `"sealed": true`와 `503`을 반환하고, `?activecode=`·`?sealedcode=`로 probe가 기대하는 상태 코드를 지정할 수 있습니다.
 
-## jikim API v0.2.11 요약
+## jikim API v0.2.12 요약
 
 다음 표는 관리 API의 주요 그룹입니다. 역할과 세부 필드는 서버 검증을 따릅니다.
 
