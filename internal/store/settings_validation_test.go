@@ -1,6 +1,10 @@
 package store
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
 
 func TestIntegrationSettingsRequireCompleteSecureConfiguration(t *testing.T) {
 	if err := ValidateSetting("oidc", map[string]any{"enabled": true, "issuer_url": "https://id.example/realms/jikim", "client_id": "jikim"}); err == nil {
@@ -81,5 +85,43 @@ func TestWebhookURLValidation(t *testing.T) {
 	}
 	if err := ValidateWebhookURL("http://127.0.0.1:8080/jikim", false); err != nil {
 		t.Fatalf("loopback development webhook rejected: %v", err)
+	}
+}
+
+// The tracking setting is what an administrator pastes a snippet into. A
+// mistyped or oversized value must be refused with 400, never stored as
+// "tracking off" or as a snippet that is never injected.
+func TestTrackingSettingsValidation(t *testing.T) {
+	rejected := []struct {
+		name  string
+		value map[string]any
+	}{
+		{"string enabled", map[string]any{"enabled": "true"}},
+		{"number provider", map[string]any{"provider": 1}},
+		{"unknown provider", map[string]any{"provider": "piwik"}},
+		{"bad placement", map[string]any{"placement": "footer"}},
+		{"oversized snippet", map[string]any{"provider": "custom", "custom_snippet": strings.Repeat("<script></script>", 600)}},
+		{"enabled momento without site", map[string]any{"enabled": true, "provider": "momento", "momento_url": "https://momento.corp.example"}},
+		{"plain http collector without opt-in", map[string]any{"enabled": true, "provider": "momento", "momento_url": "http://momento.corp.example", "momento_site_id": "s"}},
+		{"non-string allowed_hosts", map[string]any{"allowed_hosts": []any{"https://a.example"}}},
+	}
+	for _, test := range rejected {
+		if err := ValidateSetting("tracking", test.value); err == nil {
+			t.Errorf("%s was accepted", test.name)
+		} else if !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: error is not ErrInvalid: %v", test.name, err)
+		}
+	}
+	accepted := []map[string]any{
+		{},
+		{"enabled": false, "provider": "momento", "momento_url": "", "momento_site_id": ""},
+		{"enabled": true, "provider": "momento", "momento_url": "https://momento.corp.example", "momento_site_id": "jikim", "momento_proxy": true, "placement": "head"},
+		{"enabled": true, "provider": "momento", "momento_url": "http://momento.corp.example", "momento_site_id": "jikim", "allow_insecure_http": true},
+		{"enabled": true, "provider": "custom", "custom_snippet": `<script src="https://t.example/a.js"></script>`, "allowed_hosts": "https://pixel.example", "include_admin": true, "placement": "body"},
+	}
+	for index, value := range accepted {
+		if err := ValidateSetting("tracking", value); err != nil {
+			t.Errorf("case %d rejected: %v", index, err)
+		}
 	}
 }
