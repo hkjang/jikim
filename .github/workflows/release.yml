@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '새 릴리스 태그(예: v0.2.10). 이미 발행된 릴리스 자산은 덮어쓰지 않습니다.'
+        description: '새 릴리스 태그(예: v0.2.11). 이미 발행된 릴리스 자산은 덮어쓰지 않습니다.'
         required: true
-        default: 'v0.2.10'
+        default: 'v0.2.11'
 
 permissions:
   contents: write

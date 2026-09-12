@@ -42,7 +42,7 @@
         "applicationCategory": "SecurityApplication",
         "applicationSubCategory": "Secrets Management",
         "operatingSystem": "Linux container",
-        "softwareVersion": "v0.2.10",
+        "softwareVersion": "v0.2.11",
         "description": "폐쇄망 배포와 애플리케이션 중심 운영을 고려한 Secret Security Platform",
         "url": "https://hkjang.github.io/jikim/",
         "downloadUrl": "https://github.com/hkjang/jikim/releases",
@@ -87,7 +87,7 @@
             "name": "OpenBao와 완전히 호환되나요?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "v0.2.10은 전체 호환을 주장하지 않습니다. KV v2의 CAS, metadata, 버전 삭제·복구·폐기와 일부 Token·Transit 핸들러를 제한 프로파일로 공개하며 OpenBao 2.6.1 differential suite는 아직 구현되지 않았습니다."
+              "text": "v0.2.11은 전체 호환을 주장하지 않습니다. KV v2의 CAS, metadata, 버전 삭제·복구·폐기와 일부 Token·Transit 핸들러를 제한 프로파일로 공개하며 OpenBao 2.6.1 differential suite는 아직 구현되지 않았습니다."
             }
           },
           {
@@ -156,14 +156,14 @@
       <div class="hero-glow hero-glow-two"></div>
       <div class="container hero-grid">
         <div class="hero-copy reveal">
-          <div class="eyebrow"><span class="status-dot"></span> v0.2.10 구현 프로파일</div>
+          <div class="eyebrow"><span class="status-dot"></span> v0.2.11 구현 프로파일</div>
           <h1>비밀은 보이지 않게.<br><span>운영은 선명하게.</span></h1>
           <p class="hero-lead">jikim은 Secret의 저장을 넘어 소유자, 애플리케이션, 접근 정책, 회전과 감사 흐름을 한곳에서 연결하는 보안 플랫폼을 지향합니다. Go 단일 서버와 React 관리 화면으로 폐쇄망 운영을 단순하게 만듭니다.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/hkjang/jikim/releases">릴리스 보기 <span aria-hidden="true">↗</span></a>
             <a class="button button-secondary" href="guides/">가이드 살펴보기</a>
           </div>
-          <p class="hero-note">전체 OpenBao 호환을 과장하지 않습니다. v0.2.10은 검증된 핸들러만 공개하는 제한 프로파일이며 differential suite는 아직 없습니다.</p>
+          <p class="hero-note">전체 OpenBao 호환을 과장하지 않습니다. v0.2.11은 검증된 핸들러만 공개하는 제한 프로파일이며 differential suite는 아직 없습니다.</p>
         </div>
 
         <div class="product-window reveal" aria-label="jikim 보안 개요 제품 방향 예시">
@@ -260,9 +260,9 @@
           <p>OpenBao의 모든 기능을 구현했다고 주장하지 않습니다. <code>/v1/*</code>는 현재 핸들러 구현 상한과 제약을 공개하고, jikim 관리 API와 MCP는 별도 계약으로 분리합니다.</p>
         </div>
         <div class="profile-layout">
-          <div class="profile-table reveal" role="region" aria-label="v0.2.10 구현 프로파일" tabindex="0">
+          <div class="profile-table reveal" role="region" aria-label="v0.2.11 구현 프로파일" tabindex="0">
             <table>
-              <thead><tr><th>영역</th><th>v0.2.10 상태</th><th>현재 확인·제약</th></tr></thead>
+              <thead><tr><th>영역</th><th>v0.2.11 상태</th><th>현재 확인·제약</th></tr></thead>
               <tbody>
                 <tr><td>서비스 상태</td><td><span class="badge done">기반 제공</span></td><td><code>/healthz</code>, <code>/readyz</code></td></tr>
                 <tr><td>OpenAPI / Capabilities</td><td><span class="badge done">계약 제공</span></td><td><code>/api/openapi.json</code>, <code>/api/v1/capabilities</code></td></tr>
@@ -295,9 +295,9 @@
           <p>릴리스는 외부 레지스트리에 의존하지 않는 Docker 이미지 번들과 체크섬을 제공합니다. PostgreSQL은 운영 조직이 관리하는 인스턴스에 연결합니다.</p>
         </div>
         <ol class="steps">
-          <li class="reveal"><span>1</span><div><b>다운로드</b><code>jikim-v0.2.10.tar.gz</code><small>GitHub Release에서 번들과 체크섬 확보</small></div></li>
+          <li class="reveal"><span>1</span><div><b>다운로드</b><code>jikim-v0.2.11.tar.gz</code><small>GitHub Release에서 번들과 체크섬 확보</small></div></li>
           <li class="reveal"><span>2</span><div><b>무결성 확인</b><code>sha256sum -c *.sha256</code><small>망 반입 전후 동일한 해시 확인</small></div></li>
-          <li class="reveal"><span>3</span><div><b>이미지 적재</b><code>docker load -i jikim-v0.2.10.tar.gz</code><small>결과 태그 jikim:v0.2.10 확인</small></div></li>
+          <li class="reveal"><span>3</span><div><b>이미지 적재</b><code>docker load -i jikim-v0.2.11.tar.gz</code><small>결과 태그 jikim:v0.2.11 확인</small></div></li>
           <li class="reveal"><span>4</span><div><b>기동·검증</b><code>docker compose up -d</code><small>healthz와 readyz 확인 후 서비스 개방</small></div></li>
         </ol>
         <div class="callout reveal"><b>폐쇄망 경계</b><span>이미지 실행에는 패키지 다운로드나 외부 CDN이 필요하지 않습니다. Keycloak·AI 등 외부 연동은 관리자가 연결한 내부 주소만 사용하도록 네트워크 정책을 구성하세요.</span></div>
@@ -309,7 +309,7 @@
         <div class="section-heading reveal">
           <div class="kicker">PRODUCT TOUR</div>
           <h2>사용자와 관리자의 경계를 분명하게</h2>
-          <p>모든 사용자·관리자 경로는 실제 Docker 이미지와 PostgreSQL을 사용하는 Playwright E2E 대상으로 관리합니다. 매니페스트가 <code>capture-required</code>이면 아래 이미지는 이전 기준 자료이며, <code>complete</code>와 v0.2.10 캡처 시각이 기록된 뒤에만 최신 화면 증빙입니다.</p>
+          <p>모든 사용자·관리자 경로는 실제 Docker 이미지와 PostgreSQL을 사용하는 Playwright E2E 대상으로 관리합니다. 매니페스트가 <code>capture-required</code>이면 아래 이미지는 이전 기준 자료이며, <code>complete</code>와 v0.2.11 캡처 시각이 기록된 뒤에만 최신 화면 증빙입니다.</p>
         </div>
         <div class="screen-grid">
           <figure class="screen-card reveal"><a class="screen-link" href="screenshots/login.png"><img class="screen-shot" src="screenshots/login.png" loading="lazy" width="1440" height="1024" alt="jikim 로그인 화면"></a><figcaption><b>로그인</b><small>버전·로컬 로그인·Keycloak SSO</small></figcaption></figure>
@@ -341,12 +341,12 @@
         </div>
         <div class="faq-list">
           <details class="reveal"><summary>jikim은 폐쇄망에서 운영할 수 있나요?</summary><p>예. 서비스 이미지는 <code>jikim-v버전.tar.gz</code>로 반입하고 <code>docker load</code>로 적재합니다. 런타임에는 외부 패키지 저장소가 필요하지 않습니다. PostgreSQL과 선택한 사내 연동 대상은 별도로 준비해야 합니다.</p></details>
-          <details class="reveal"><summary>OpenBao와 완전히 호환되나요?</summary><p>아닙니다. v0.2.10은 KV v2 CAS·metadata·버전 삭제·복구·폐기와 일부 Token·Transit을 제공하는 제한 프로파일입니다. OpenBao differential suite는 아직 없으므로 기존 클라이언트를 연결하기 전에 사용하는 API를 별도로 비교 테스트해야 합니다.</p></details>
+          <details class="reveal"><summary>OpenBao와 완전히 호환되나요?</summary><p>아닙니다. v0.2.11은 KV v2 CAS·metadata·버전 삭제·복구·폐기와 일부 Token·Transit을 제공하는 제한 프로파일입니다. OpenBao differential suite는 아직 없으므로 기존 클라이언트를 연결하기 전에 사용하는 API를 별도로 비교 테스트해야 합니다.</p></details>
           <details class="reveal"><summary>환경변수는 몇 개가 필요한가요?</summary><p><code>POSTGRES_DSN</code>, <code>BOOTSTRAP_ADMIN</code>, <code>BOOTSTRAP_ADMIN_PASSWORD</code>, <code>ENCRYPTION_KEY</code> 네 개입니다. Keycloak, AI, 승인과 키 정책 같은 운영 설정은 관리자 화면에서 관리하는 구조입니다.</p></details>
           <details class="reveal"><summary>AI에 Secret 평문이 전달되나요?</summary><p>AI 연동은 메타데이터와 감사 통계를 중심으로 설계하며 Secret 평문을 모델 요청에 포함하지 않는 것을 기본 보안 경계로 둡니다. 관리자는 저장된 설정으로 SSE 연결을 검사하고 최대 출력 토큰을 262,144까지 설정할 수 있지만 실제 상한은 연결한 모델 정책을 따릅니다.</p></details>
           <details class="reveal"><summary>Webhook 실패를 자동으로 재시도하나요?</summary><p>아닙니다. 이벤트는 HMAC-SHA256 서명과 함께 전송되고 결과와 payload가 이력에 저장됩니다. 관리자는 실패한 delivery를 명시적으로 수동 재전송할 수 있으며 예약형 자동 재시도 스케줄러는 제공하지 않습니다.</p></details>
           <details class="reveal"><summary>MCP 클라이언트는 어떤 계약을 따라야 하나요?</summary><p><code>POST /mcp</code>는 JSON과 event-stream을 모두 수락하는 Accept 헤더를 요구합니다. initialize 이후에는 <code>MCP-Protocol-Version</code>에 <code>2025-11-25</code> 또는 <code>2025-06-18</code>을 보내야 하며 서버는 session 없는 stateless 방식입니다.</p></details>
-          <details class="reveal"><summary>누가 키를 회전할 수 있나요?</summary><p>사용자는 활성 개인 키에 회전 권한이 있을 때 자기 키를 회전할 수 있고, 관리자는 전체 개인 키를 관리할 수 있습니다. Transit 키는 관리자 또는 키에 회전 권한을 가진 팀장이 회전합니다. v0.2.10의 승인 워크플로는 키 회전에 적용되지 않습니다.</p></details>
+          <details class="reveal"><summary>누가 키를 회전할 수 있나요?</summary><p>사용자는 활성 개인 키에 회전 권한이 있을 때 자기 키를 회전할 수 있고, 관리자는 전체 개인 키를 관리할 수 있습니다. Transit 키는 관리자 또는 키에 회전 권한을 가진 팀장이 회전합니다. v0.2.11의 승인 워크플로는 키 회전에 적용되지 않습니다.</p></details>
         </div>
       </div>
     </section>
@@ -361,7 +361,7 @@
 
   <footer class="site-footer">
     <div class="container footer-inner">
-      <div><img src="assets/logo.svg" width="130" height="34" alt="jikim"><p>v0.2.10 · OpenBao 2.6.1 API 제한 프로파일 · <a href="https://github.com/hkjang/jikim/blob/main/docs/guides/compatibility.md">상세 범위</a></p></div>
+      <div><img src="assets/logo.svg" width="130" height="34" alt="jikim"><p>v0.2.11 · OpenBao 2.6.1 API 제한 프로파일 · <a href="https://github.com/hkjang/jikim/blob/main/docs/guides/compatibility.md">상세 범위</a></p></div>
       <div class="footer-links"><a href="guides/">문서</a><a href="https://github.com/hkjang/jikim/blob/main/docs/guides/security.md">보안</a><a href="https://github.com/hkjang/jikim/releases">릴리스</a><a href="https://github.com/hkjang/jikim">소스</a></div>
       <small>© <span data-year>2026</span> jikim contributors · Apache-2.0</small>
     </div>
