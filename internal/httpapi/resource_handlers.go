@@ -570,7 +570,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	result := map[string]any{
 		"general":       map[string]any{"service_name": "jikim"},
 		"approval":      map[string]any{"approval_enabled": false},
-		"oidc":          map[string]any{"enabled": false, "client_secret_configured": false},
+		"oidc":          map[string]any{"enabled": false, "auto_login": false, "client_secret_configured": false},
 		"ai":            map[string]any{"enabled": false, "api_key_configured": false},
 		"security":      map[string]any{},
 		"notifications": map[string]any{"enabled": false, "supported_events": store.SupportedWebhookEvents()},

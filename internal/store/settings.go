@@ -163,6 +163,9 @@ func validateSetting(key string, value map[string]any) error {
 		if err != nil {
 			return err
 		}
+		if _, err := optionalBool(value, "auto_login"); err != nil {
+			return err
+		}
 		issuer, _ := value["issuer_url"].(string)
 		clientID, _ := value["client_id"].(string)
 		redirectURL, _ := value["redirect_url"].(string)
@@ -436,9 +439,12 @@ func (s *Store) ListSettings(ctx context.Context) ([]model.Setting, error) {
 }
 
 type PublicSettings struct {
-	ApprovalEnabled   bool   `json:"approval_enabled"`
-	ReviewerRole      string `json:"reviewer_role"`
-	OIDCEnabled       bool   `json:"oidc_enabled"`
+	ApprovalEnabled bool   `json:"approval_enabled"`
+	ReviewerRole    string `json:"reviewer_role"`
+	OIDCEnabled     bool   `json:"oidc_enabled"`
+	// OIDCAutoLogin is published so the browser knows whether to try a silent
+	// prompt=none sign-in before rendering the login screen.
+	OIDCAutoLogin     bool   `json:"oidc_auto_login"`
 	AIEnabled         bool   `json:"ai_enabled"`
 	LocalLoginEnabled bool   `json:"local_login_enabled"`
 	ServiceName       string `json:"service_name"`
@@ -463,6 +469,9 @@ func (s *Store) PublicSettings(ctx context.Context, version string) (PublicSetti
 	}
 	if raw, ok := oidc.Value["enabled"].(bool); ok {
 		result.OIDCEnabled = raw
+	}
+	if raw, ok := oidc.Value["auto_login"].(bool); ok {
+		result.OIDCAutoLogin = result.OIDCEnabled && raw
 	}
 	ai, err := s.GetSetting(ctx, "ai", false)
 	if err != nil && !errors.Is(err, ErrNotFound) {
@@ -606,6 +615,10 @@ type OIDCConfig struct {
 	RoleClaim         string
 	RedirectURL       string
 	AllowInsecureHTTP bool
+	// AutoLogin lets the browser try a prompt=none sign-in before showing the
+	// login screen. Off by default; the login handler ignores prompt=none
+	// unless this is set, so a visitor cannot switch flows from the URL.
+	AutoLogin bool
 }
 
 func (s *Store) OIDCConfig(ctx context.Context) (OIDCConfig, error) {
@@ -622,6 +635,7 @@ func (s *Store) OIDCConfig(ctx context.Context) (OIDCConfig, error) {
 	cfg.RoleClaim, _ = setting.Value["role_claim"].(string)
 	cfg.RedirectURL, _ = setting.Value["redirect_url"].(string)
 	cfg.AllowInsecureHTTP, _ = setting.Value["allow_insecure_http"].(bool)
+	cfg.AutoLogin, _ = setting.Value["auto_login"].(bool)
 	if raw, ok := setting.Value["scopes"].([]any); ok {
 		for _, scope := range raw {
 			if value, ok := scope.(string); ok {

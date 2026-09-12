@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { get, post } from '../lib/api';
+import { clearSilentSsoState } from '../lib/silentSso';
 import type { User } from '../lib/types';
 
 interface AuthValue {
@@ -36,6 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const result = await post<{ user: User }>('/auth/login', { username, password });
     if (!result.user) throw new Error('서버가 로그인 사용자 정보를 반환하지 않았습니다.');
+    // 세션이 다시 생겼으니 로그아웃 억제와 '이미 시도했다' 표시를 지운다.
+    clearSilentSsoState();
     setUser(result.user);
   }, []);
 

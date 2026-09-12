@@ -94,6 +94,20 @@ describe('AdminSettingsPage OIDC tab', () => {
     await waitFor(() => expect(screen.queryByText('연결 확인 완료')).not.toBeInTheDocument());
   });
 
+  it('saves auto_login from the silent SSO switch and defaults it to off', async () => {
+    apiMocks.patch.mockResolvedValue({});
+    renderPage();
+    const autoLogin = await screen.findByLabelText(/자동 로그인\(조용한 SSO\)/);
+    expect(autoLogin).not.toBeChecked();
+    fireEvent.click(autoLogin);
+    await waitFor(() => expect(screen.getByLabelText(/자동 로그인\(조용한 SSO\)/)).toBeChecked());
+    fireEvent.click(screen.getByRole('button', { name: /설정 저장/ }));
+    await waitFor(() => expect(apiMocks.patch).toHaveBeenCalled());
+    const payload = apiMocks.patch.mock.calls[0][1] as { oidc: Record<string, unknown> };
+    expect(payload.oidc.auto_login).toBe(true);
+    expect(payload.oidc.enabled).toBe(true);
+  });
+
   it('keeps other OIDC inputs editable', async () => {
     renderPage();
     const clientId = await screen.findByLabelText(/Client ID/);

@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { Alert, Anchor, Box, Button, Divider, Group, Image, Paper, PasswordInput, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
 import { useForm } from 'react-hook-form';
 import { AlertCircle, ArrowRight, KeyRound, LockKeyhole, Radio, ShieldCheck } from 'lucide-react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../lib/api';
 import { APP_VERSION } from '../lib/format';
 import { useAuth } from '../contexts/AuthContext';
+import { safeReturnTo } from '../lib/silentSso';
 
 interface FormValues { username: string; password: string }
 interface PublicSettings { oidc_enabled?: boolean; oidc_login_url?: string; version?: string }
@@ -15,25 +16,29 @@ export function LoginPage() {
   const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [error, setError] = useState('');
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({ defaultValues: { username: '', password: '' } });
   const settings = useQuery({ queryKey: ['public-settings-login'], queryFn: () => get<PublicSettings>('/settings/public'), retry: false });
-  if (user) return <Navigate to="/dashboard" replace />;
+  // 보호된 경로에서 넘어온 자리, 또는 조용한 SSO 가 거절된 뒤 콜백이 붙여 준 return_to.
+  const from = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+  const returnTo = safeReturnTo(from?.pathname ? `${from.pathname}${from.search ?? ''}` : searchParams.get('return_to'));
+  if (user) return <Navigate to={returnTo} replace />;
 
   const submit = handleSubmit(async (values) => {
     setError('');
     try {
       await login(values.username, values.password);
-      const target = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || '/dashboard';
-      navigate(target, { replace: true });
+      navigate(returnTo, { replace: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '아이디 또는 비밀번호를 확인해 주세요.');
     }
   });
 
   const oidcLogin = () => {
-    const returnTo = `${window.location.origin}/oidc/callback`;
-    window.location.href = settings.data?.oidc_login_url || `/api/v1/oidc/login?redirect_uri=${encodeURIComponent(returnTo)}`;
+    const redirectUri = `${window.location.origin}/oidc/callback`;
+    const loginUrl = settings.data?.oidc_login_url || `/api/v1/oidc/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+    window.location.href = `${loginUrl}${loginUrl.includes('?') ? '&' : '?'}return_to=${encodeURIComponent(returnTo)}`;
   };
 
   return (

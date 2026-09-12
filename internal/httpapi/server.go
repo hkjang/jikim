@@ -33,6 +33,7 @@ type Server struct {
 	transitDecryptor  func(context.Context, string, string) (string, error)
 	auditRecorder     func(context.Context, model.AuditEvent) error
 	storagePinger     func(context.Context) error
+	oidcStateOpener   func(string, any) error
 	trackingLoader    func(context.Context) (tracking.Config, error)
 	violations        *tracking.Recorder
 }
