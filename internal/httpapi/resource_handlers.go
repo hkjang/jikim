@@ -574,6 +574,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		"ai":            map[string]any{"enabled": false, "api_key_configured": false},
 		"security":      map[string]any{},
 		"notifications": map[string]any{"enabled": false, "supported_events": store.SupportedWebhookEvents()},
+		"tracking":      map[string]any{"enabled": false},
 	}
 	for _, item := range items {
 		switch item.Key {
@@ -581,7 +582,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 			result["general"] = item.Value
 		case "workflow":
 			result["approval"] = item.Value
-		case "oidc", "ai", "security", "notifications":
+		case "oidc", "ai", "security", "notifications", "tracking":
 			result[item.Key] = item.Value
 		case "oidc_client_secret":
 			value, _ := result["oidc"].(map[string]any)

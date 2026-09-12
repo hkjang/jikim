@@ -133,5 +133,6 @@ export interface SystemSettings {
   ai?: Record<string, unknown>;
   security?: Record<string, unknown>;
   notifications?: Record<string, unknown>;
+  tracking?: Record<string, unknown>;
   [key: string]: unknown;
 }

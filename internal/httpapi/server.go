@@ -13,6 +13,7 @@ import (
 	"github.com/hkjang/jikim/internal/ids"
 	"github.com/hkjang/jikim/internal/model"
 	"github.com/hkjang/jikim/internal/store"
+	"github.com/hkjang/jikim/internal/tracking"
 )
 
 type Server struct {
@@ -32,6 +33,8 @@ type Server struct {
 	transitDecryptor  func(context.Context, string, string) (string, error)
 	auditRecorder     func(context.Context, model.AuditEvent) error
 	storagePinger     func(context.Context) error
+	trackingLoader    func(context.Context) (tracking.Config, error)
+	violations        *tracking.Recorder
 }
 
 func New(st *store.Store, logger *slog.Logger) http.Handler {
@@ -46,8 +49,10 @@ func New(st *store.Store, logger *slog.Logger) http.Handler {
 		loginLimiter: newLoginRateLimiter(),
 		aiLimiter:    newAIRequestLimiter(),
 		webhookSlots: make(chan struct{}, 16),
+		violations:   tracking.NewRecorder(),
 	}
-	s.static = discoverStaticHandler(logger)
+	s.trackingLoader = st.TrackingConfig
+	s.static = discoverStaticHandler(logger, s.decorateIndex)
 	mux := http.NewServeMux()
 	s.routes(mux)
 	return s.requestID(s.recoverer(s.securityHeaders(s.audit(mux))))
@@ -128,6 +133,12 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/integrations/webhook/test", s.requireRoles(http.HandlerFunc(s.webhookTest), "admin"))
 	mux.Handle("GET /api/v1/integrations/webhook/deliveries", s.requireRoles(http.HandlerFunc(s.listWebhookDeliveries), "admin", "auditor"))
 	mux.Handle("POST /api/v1/integrations/webhook/deliveries/{id}/retry", s.requireRoles(http.HandlerFunc(s.retryWebhookDelivery), "admin"))
+
+	mux.HandleFunc("POST "+cspReportPath, s.receiveCSPReport)
+	mux.Handle("GET /api/v1/tracking/violations", s.requireRoles(http.HandlerFunc(s.listTrackingViolations), "admin"))
+	mux.Handle("DELETE /api/v1/tracking/violations", s.requireRoles(http.HandlerFunc(s.clearTrackingViolations), "admin"))
+	mux.Handle("POST /api/v1/tracking/violations/allow", s.requireRoles(http.HandlerFunc(s.allowTrackingOrigin), "admin"))
+	mux.HandleFunc(tracking.MomentoProxyPrefix+"/", s.momentoProxy)
 
 	mux.HandleFunc("GET /mcp", s.mcpGET)
 	mux.Handle("POST /mcp", mcpOriginGuard(s.withAuth(http.HandlerFunc(s.mcp))))
@@ -259,7 +270,14 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'")
+		// Screens get the page policy; the page handler adds a nonce and the
+		// tracking sources to it when a snippet is on. Responses no browser
+		// renders get a policy that loads nothing at all.
+		if pagePath(r.URL.Path) {
+			w.Header().Set("Content-Security-Policy", defaultPagePolicy())
+		} else {
+			w.Header().Set("Content-Security-Policy", apiPolicy)
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -321,12 +339,14 @@ func (s *Server) audit(next http.Handler) http.Handler {
 // API surfaces do; reading the audit log itself does not, and neither does
 // /v1/sys/health — it is the OpenBao-shaped twin of /healthz and /readyz, an
 // unauthenticated probe that touches no resource, and auditing it writes one
-// row per poll including through the outage the probe exists to report.
+// row per poll including through the outage the probe exists to report. The
+// policy report endpoint is left out for the same reason: browsers post to it
+// unauthenticated on every blocked request, and it touches no resource.
 func auditablePath(path string) bool {
 	if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/v1/") && path != "/mcp" {
 		return false
 	}
-	return path != "/api/v1/audit" && path != "/v1/sys/health"
+	return path != "/api/v1/audit" && path != "/v1/sys/health" && path != cspReportPath
 }
 
 func auditAction(r *http.Request) string {

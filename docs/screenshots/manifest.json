@@ -45,6 +45,7 @@
     { "id": "storage", "route": "/infrastructure/storage", "file": "storage.png", "auth": "admin", "required": true },
     { "id": "infrastructure-security", "route": "/infrastructure/security", "file": "infrastructure-security.png", "auth": "admin", "required": true },
     { "id": "admin-settings", "route": "/admin/settings", "file": "admin-settings.png", "auth": "admin", "required": true, "mobile_required": true },
+    { "id": "admin-settings-tracking", "route": "/admin/settings?tab=tracking", "file": "admin-settings-tracking.png", "auth": "admin", "fixture": true, "required": false },
     { "id": "admin-users", "route": "/admin/users", "file": "admin-users.png", "auth": "admin", "required": true },
     { "id": "namespaces", "route": "/admin/namespaces", "file": "namespaces.png", "auth": "admin", "required": true },
     { "id": "forbidden", "route": "/forbidden", "file": "forbidden.png", "auth": "user", "required": true },

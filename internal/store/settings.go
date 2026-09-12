@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/hkjang/jikim/internal/model"
-	"github.com/jackc/pgx/v5"
+	"github.com/hkjang/jikim/internal/tracking"
 )
 
 var allowedSettingKeys = map[string]bool{
@@ -25,6 +25,7 @@ var allowedSettingKeys = map[string]bool{
 	"notifications":               true,
 	"notification_webhook":        true,
 	"notification_webhook_secret": true,
+	"tracking":                    true,
 }
 
 func SensitiveSetting(key string) bool {
@@ -267,6 +268,25 @@ func validateSetting(key string, value map[string]any) error {
 		}
 		if err := optionalString(value, "allowed_networks"); err != nil {
 			return err
+		}
+	case "tracking":
+		// A mistyped value here would silently mean "tracking off" or, worse,
+		// a snippet that is stored but never injected; refuse it instead.
+		for _, key := range []string{"enabled", "momento_proxy", "include_admin", "allow_insecure_http"} {
+			if _, err := optionalBool(value, key); err != nil {
+				return err
+			}
+		}
+		for _, key := range []string{"provider", "momento_url", "momento_site_id", "momento_environment", "measurement_id", "matomo_url", "matomo_site_id", "custom_snippet", "allowed_hosts", "placement"} {
+			if err := optionalString(value, key); err != nil {
+				return err
+			}
+		}
+		if raw, ok := value["placement"].(string); ok && raw != "" && raw != "head" && raw != "body" {
+			return fmt.Errorf("%w: placement는 head 또는 body여야 합니다", ErrInvalid)
+		}
+		if err := tracking.ReadConfig(value).Validate(); err != nil {
+			return fmt.Errorf("%w: 방문 추적: %v", ErrInvalid, err)
 		}
 	case "service":
 		if err := optionalString(value, "service_name"); err != nil {
@@ -668,6 +688,18 @@ func (s *Store) WebhookConfig(ctx context.Context) (WebhookConfig, error) {
 	return cfg, nil
 }
 
-func settingUpdatedAt() time.Time { return time.Now().UTC() }
+// TrackingConfig reads the visitor tracking setting. A missing row is the
+// switched-off default; a storage failure is returned so the caller can
+// decide whether a page should still be served.
+func (s *Store) TrackingConfig(ctx context.Context) (tracking.Config, error) {
+	setting, err := s.GetSetting(ctx, "tracking", false)
+	if errors.Is(err, ErrNotFound) {
+		return tracking.ReadConfig(nil), nil
+	}
+	if err != nil {
+		return tracking.ReadConfig(nil), err
+	}
+	return tracking.ReadConfig(setting.Value), nil
+}
 
-var _ = pgx.ErrNoRows
+func settingUpdatedAt() time.Time { return time.Now().UTC() }

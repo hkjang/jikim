@@ -17,14 +17,17 @@ import {
   Skeleton,
   Stack,
   Switch,
+  Table,
   Tabs,
   Text,
+  Textarea,
   TextInput,
   ThemeIcon,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
+  Activity,
   Bell,
   Bot,
   CheckCircle2,
@@ -40,12 +43,12 @@ import {
   UsersRound,
   Webhook,
 } from 'lucide-react';
-import { get, patch, post, testAIIntegration, testWebhookIntegration } from '../../lib/api';
+import { del, get, patch, post, testAIIntegration, testWebhookIntegration } from '../../lib/api';
 import type { IntegrationTestResult, SystemSettings } from '../../lib/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 
-type SettingsTab = 'general' | 'approval' | 'oidc' | 'ai' | 'security' | 'notifications';
+type SettingsTab = 'general' | 'approval' | 'oidc' | 'ai' | 'security' | 'notifications' | 'tracking';
 
 interface GeneralSettings {
   service_name: string;
@@ -109,6 +112,34 @@ interface NotificationSettings {
   events: string[];
 }
 
+type TrackingProvider = 'none' | 'momento' | 'ga4' | 'gtm' | 'matomo' | 'custom';
+
+interface TrackingSettings {
+  enabled: boolean;
+  provider: TrackingProvider;
+  momento_url: string;
+  momento_site_id: string;
+  momento_environment: string;
+  momento_proxy: boolean;
+  measurement_id: string;
+  matomo_url: string;
+  matomo_site_id: string;
+  custom_snippet: string;
+  allowed_hosts: string;
+  include_admin: boolean;
+  placement: 'head' | 'body';
+  allow_insecure_http: boolean;
+}
+
+interface TrackingViolation {
+  origin: string;
+  directive: string;
+  page: string;
+  count: number;
+  last_seen: string;
+  allowed: boolean;
+}
+
 interface AdminSettings {
   general: GeneralSettings;
   approval: ApprovalSettings;
@@ -116,6 +147,7 @@ interface AdminSettings {
   ai: AiSettings;
   security: SecuritySettings;
   notifications: NotificationSettings;
+  tracking: TrackingSettings;
 }
 
 interface OidcTestResult {
@@ -144,6 +176,20 @@ const approvalTargets = [
   { value: 'secret_write', label: 'Secret 생성·변경' },
   { value: 'secret_delete', label: 'Secret 폐기' },
 ];
+
+const trackingProviders: Array<{ value: TrackingProvider; label: string }> = [
+  { value: 'momento', label: 'Momento (사내 자체 호스팅 수집기)' },
+  { value: 'ga4', label: 'Google Analytics 4' },
+  { value: 'gtm', label: 'Google Tag Manager' },
+  { value: 'matomo', label: 'Matomo' },
+  { value: 'custom', label: '직접 붙여넣기' },
+];
+
+const maxSnippetBytes = 8 * 1024;
+
+function snippetBytes(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
 
 const notificationEvents = [
   { value: 'approval.requested', label: '승인 요청' },
@@ -187,6 +233,8 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
   const ai = record(root.ai);
   const security = record(root.security);
   const notification = record(root.notifications);
+  const tracking = record(root.tracking);
+  const provider = stringValue(tracking.provider, 'momento');
 
   return {
     general: {
@@ -245,6 +293,22 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
       allow_insecure_http: booleanValue(notification.allow_insecure_http),
       events: stringList(notification.events, ['approval.requested', 'secret.rotated', 'rotation.failed']),
     },
+    tracking: {
+      enabled: booleanValue(tracking.enabled),
+      provider: trackingProviders.some((item) => item.value === provider) ? provider as TrackingProvider : 'momento',
+      momento_url: stringValue(tracking.momento_url),
+      momento_site_id: stringValue(tracking.momento_site_id),
+      momento_environment: stringValue(tracking.momento_environment, 'prd'),
+      momento_proxy: booleanValue(tracking.momento_proxy, true),
+      measurement_id: stringValue(tracking.measurement_id),
+      matomo_url: stringValue(tracking.matomo_url),
+      matomo_site_id: stringValue(tracking.matomo_site_id),
+      custom_snippet: stringValue(tracking.custom_snippet),
+      allowed_hosts: stringValue(tracking.allowed_hosts),
+      include_admin: booleanValue(tracking.include_admin),
+      placement: tracking.placement === 'body' ? 'body' : 'head',
+      allow_insecure_http: booleanValue(tracking.allow_insecure_http),
+    },
   };
 }
 
@@ -286,6 +350,23 @@ function settingsPayload(settings: AdminSettings, redirectUrl: string): Record<s
   if (settings.notifications.webhook_url.trim()) notifications.webhook_url = settings.notifications.webhook_url.trim();
   if (settings.notifications.signing_secret.trim()) notifications.signing_secret = settings.notifications.signing_secret;
 
+  const tracking: Record<string, unknown> = {
+    enabled: settings.tracking.enabled,
+    provider: settings.tracking.provider,
+    momento_url: settings.tracking.momento_url.trim(),
+    momento_site_id: settings.tracking.momento_site_id.trim(),
+    momento_environment: settings.tracking.momento_environment.trim(),
+    momento_proxy: settings.tracking.momento_proxy,
+    measurement_id: settings.tracking.measurement_id.trim(),
+    matomo_url: settings.tracking.matomo_url.trim(),
+    matomo_site_id: settings.tracking.matomo_site_id.trim(),
+    custom_snippet: settings.tracking.custom_snippet,
+    allowed_hosts: settings.tracking.allowed_hosts.trim(),
+    include_admin: settings.tracking.include_admin,
+    placement: settings.tracking.placement,
+    allow_insecure_http: settings.tracking.allow_insecure_http,
+  };
+
   return {
     general: settings.general,
     approval: { ...settings.approval, approval_enabled: settings.approval.enabled },
@@ -293,6 +374,7 @@ function settingsPayload(settings: AdminSettings, redirectUrl: string): Record<s
     ai,
     security: settings.security,
     notifications,
+    tracking,
   };
 }
 
@@ -391,6 +473,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
   const updateAi = (patch: Partial<AiSettings>) => setSettings((current) => ({ ...current, ai: { ...current.ai, ...patch } }));
   const updateSecurity = (patch: Partial<SecuritySettings>) => setSettings((current) => ({ ...current, security: { ...current.security, ...patch } }));
   const updateNotifications = (patch: Partial<NotificationSettings>) => setSettings((current) => ({ ...current, notifications: { ...current.notifications, ...patch } }));
+  const updateTracking = (patch: Partial<TrackingSettings>) => setSettings((current) => ({ ...current, tracking: { ...current.tracking, ...patch } }));
 
   const saveMutation = useMutation({
     mutationFn: () => patch<unknown>('/settings', settingsPayload(settings, redirectUrl)),
@@ -461,6 +544,31 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
     onError: (error) => setAiResult({ ok: false, message: errorMessage(error) }),
   });
 
+  const violationsQuery = useQuery({
+    queryKey: ['tracking-violations'],
+    queryFn: () => get<TrackingViolation[]>('/tracking/violations'),
+    enabled: activeTab === 'tracking',
+  });
+
+  const allowOriginMutation = useMutation({
+    mutationFn: (origin: string) => post<{ allowed_hosts: string }>('/tracking/violations/allow', { origin }),
+    onSuccess: async (result) => {
+      // The server appended to the stored list; mirror it so the form does not
+      // overwrite the addition on the next save.
+      const hosts = result.allowed_hosts;
+      setSettings((current) => ({ ...current, tracking: { ...current.tracking, allowed_hosts: hosts } }));
+      setSavedSettings((current) => ({ ...current, tracking: { ...current.tracking, allowed_hosts: hosts } }));
+      await queryClient.invalidateQueries({ queryKey: ['tracking-violations'] });
+      notifications.show({ color: 'teal', title: '출처를 허용했습니다', message: '다음 화면 요청부터 정책에 반영됩니다.' });
+    },
+    onError: (error) => notifications.show({ color: 'red', title: '출처를 허용하지 못했습니다', message: errorMessage(error) }),
+  });
+
+  const clearViolationsMutation = useMutation({
+    mutationFn: () => del<void>('/tracking/violations'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tracking-violations'] }),
+  });
+
   const webhookTestMutation = useMutation({
     mutationFn: () => testWebhookIntegration<IntegrationTestResult>(),
     onSuccess: (result) => {
@@ -501,6 +609,32 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
     if (settings.notifications.enabled && settings.notifications.events.length === 0) {
       setActiveTab('notifications');
       setSaveValidation('Webhook으로 전달할 이벤트를 하나 이상 선택하세요.');
+      return;
+    }
+    const tracking = settings.tracking;
+    if (tracking.enabled && tracking.provider === 'momento' && (!tracking.momento_url.trim() || !tracking.momento_site_id.trim())) {
+      setActiveTab('tracking');
+      setSaveValidation('Momento 추적을 사용하려면 수집기 주소와 사이트 ID를 모두 입력하세요.');
+      return;
+    }
+    if (tracking.enabled && (tracking.provider === 'ga4' || tracking.provider === 'gtm') && !tracking.measurement_id.trim()) {
+      setActiveTab('tracking');
+      setSaveValidation('Google 추적을 사용하려면 측정 ID(또는 컨테이너 ID)를 입력하세요.');
+      return;
+    }
+    if (tracking.enabled && tracking.provider === 'matomo' && (!tracking.matomo_url.trim() || !tracking.matomo_site_id.trim())) {
+      setActiveTab('tracking');
+      setSaveValidation('Matomo 추적을 사용하려면 Matomo 주소와 사이트 ID를 모두 입력하세요.');
+      return;
+    }
+    if (tracking.enabled && tracking.provider === 'custom' && !tracking.custom_snippet.trim()) {
+      setActiveTab('tracking');
+      setSaveValidation('직접 붙여넣기 추적을 사용하려면 스니펫을 입력하세요.');
+      return;
+    }
+    if (snippetBytes(tracking.custom_snippet) > maxSnippetBytes) {
+      setActiveTab('tracking');
+      setSaveValidation('추적 스니펫은 8KB를 넘을 수 없습니다.');
       return;
     }
     saveMutation.mutate();
@@ -561,6 +695,12 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
               <Tabs.Tab value="ai" leftSection={<Bot size={16} />} style={{ flexShrink: 0 }}>AI</Tabs.Tab>
               <Tabs.Tab value="security" leftSection={<ShieldCheck size={16} />} style={{ flexShrink: 0 }}>보안</Tabs.Tab>
               <Tabs.Tab value="notifications" leftSection={<Bell size={16} />} style={{ flexShrink: 0 }}>알림</Tabs.Tab>
+              <Tabs.Tab value="tracking" leftSection={<Activity size={16} />} style={{ flexShrink: 0 }}>
+                방문 추적
+                <Badge ml={8} size="xs" color={settings.tracking.enabled ? 'teal' : 'gray'}>
+                  {settings.tracking.enabled ? '사용' : '미사용'}
+                </Badge>
+              </Tabs.Tab>
             </Tabs.List>
 
             <Tabs.Panel value="general" pt="xl">
@@ -1076,6 +1216,200 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 <Text size="sm" c="dimmed">이 릴리스의 알림 채널은 서명 Webhook만 지원합니다. 이메일·SMTP 알림은 제공하지 않습니다.</Text>
               </Stack>
             </Tabs.Panel>
+
+            <Tabs.Panel value="tracking" pt="xl">
+              <Stack gap="xl">
+                <SectionHeading icon={<Activity size={20} />} title="방문 추적" description="관리자가 화면에서 방문 추적 스크립트를 붙입니다. 기본값은 꺼짐이며, 켜기 전까지 어떤 화면에도 스니펫이 들어가지 않습니다." />
+                <Alert color="blue" title="콘텐츠 보안 정책(CSP)은 그대로 잠겨 있습니다">
+                  jikim 화면은 <code>script-src 'self'</code>로 잠겨 있습니다. 추적을 켜면 요청마다 새 nonce를 만들어 스니펫의 모든 <code>&lt;script&gt;</code>에
+                  붙이고 같은 nonce를 정책에 넣습니다. 스니펫이 부르는 주소는 자동으로 정책에 더해지며, 그래도 막힌 출처는 아래 목록에 나타납니다.
+                  <code>'unsafe-inline'</code>은 쓰지 않습니다.
+                </Alert>
+                <Switch
+                  size="md"
+                  checked={settings.tracking.enabled}
+                  onChange={(event) => updateTracking({ enabled: event.currentTarget.checked })}
+                  label="방문 추적 사용"
+                  description="저장 후 새로 여는 화면부터 스니펫이 들어갑니다."
+                />
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+                  <Select
+                    label="제공자"
+                    description="Momento는 데이터가 사내 밖으로 나가지 않는 유일한 선택지입니다."
+                    data={trackingProviders}
+                    value={settings.tracking.provider}
+                    allowDeselect={false}
+                    onChange={(value) => updateTracking({ provider: (value || 'momento') as TrackingProvider })}
+                  />
+                  <Select
+                    label="삽입 위치"
+                    description="head는 페이지가 그려지기 전에, body는 화면 끝에 넣습니다."
+                    data={[{ value: 'head', label: '<head> 끝' }, { value: 'body', label: '<body> 끝' }]}
+                    value={settings.tracking.placement}
+                    allowDeselect={false}
+                    onChange={(value) => updateTracking({ placement: value === 'body' ? 'body' : 'head' })}
+                  />
+                </SimpleGrid>
+
+                {settings.tracking.provider === 'momento' && (
+                  <Stack gap="md">
+                    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+                      <TextInput
+                        type="url"
+                        label="Momento 수집기 주소"
+                        description="tracker.js와 이벤트를 받는 수집기의 오리진입니다."
+                        placeholder="https://momento.example.internal"
+                        required={settings.tracking.enabled}
+                        value={settings.tracking.momento_url}
+                        onChange={(event) => updateTracking({ momento_url: event.currentTarget.value })}
+                      />
+                      <TextInput
+                        label="Momento 사이트 ID"
+                        placeholder="jikim-prod"
+                        required={settings.tracking.enabled}
+                        value={settings.tracking.momento_site_id}
+                        onChange={(event) => updateTracking({ momento_site_id: event.currentTarget.value })}
+                      />
+                      <TextInput
+                        label="환경 이름"
+                        description="스니펫의 data-environment 값입니다."
+                        placeholder="prd"
+                        value={settings.tracking.momento_environment}
+                        onChange={(event) => updateTracking({ momento_environment: event.currentTarget.value })}
+                      />
+                    </SimpleGrid>
+                    <Switch
+                      checked={settings.tracking.momento_proxy}
+                      onChange={(event) => updateTracking({ momento_proxy: event.currentTarget.checked })}
+                      label="같은 오리진 프록시 사용 (권장)"
+                      description="jikim이 /momento/* 요청을 수집기로 넘깁니다. 브라우저는 jikim 오리진만 보므로 정책에 외부 출처가 등장하지 않습니다."
+                    />
+                  </Stack>
+                )}
+
+                {(settings.tracking.provider === 'ga4' || settings.tracking.provider === 'gtm') && (
+                  <TextInput
+                    label={settings.tracking.provider === 'ga4' ? '측정 ID' : '컨테이너 ID'}
+                    placeholder={settings.tracking.provider === 'ga4' ? 'G-XXXXXXXXXX' : 'GTM-XXXXXXX'}
+                    required={settings.tracking.enabled}
+                    value={settings.tracking.measurement_id}
+                    onChange={(event) => updateTracking({ measurement_id: event.currentTarget.value })}
+                  />
+                )}
+
+                {settings.tracking.provider === 'matomo' && (
+                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+                    <TextInput
+                      type="url"
+                      label="Matomo 주소"
+                      placeholder="https://matomo.example.internal"
+                      required={settings.tracking.enabled}
+                      value={settings.tracking.matomo_url}
+                      onChange={(event) => updateTracking({ matomo_url: event.currentTarget.value })}
+                    />
+                    <TextInput
+                      label="Matomo 사이트 ID"
+                      placeholder="1"
+                      required={settings.tracking.enabled}
+                      value={settings.tracking.matomo_site_id}
+                      onChange={(event) => updateTracking({ matomo_site_id: event.currentTarget.value })}
+                    />
+                  </SimpleGrid>
+                )}
+
+                {settings.tracking.provider === 'custom' && (
+                  <Textarea
+                    label="추적 스니펫"
+                    description={`추적 도구가 제공한 <script> 태그를 그대로 붙여 넣습니다. 최대 8KB (현재 ${snippetBytes(settings.tracking.custom_snippet).toLocaleString('ko-KR')}바이트).`}
+                    placeholder={'<script async src="https://tracker.example.internal/t.js" data-site="..."></script>'}
+                    autosize
+                    minRows={4}
+                    maxRows={14}
+                    required={settings.tracking.enabled}
+                    error={snippetBytes(settings.tracking.custom_snippet) > maxSnippetBytes ? '8KB를 넘었습니다.' : undefined}
+                    styles={{ input: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } }}
+                    value={settings.tracking.custom_snippet}
+                    onChange={(event) => updateTracking({ custom_snippet: event.currentTarget.value })}
+                  />
+                )}
+
+                <TextInput
+                  label="추가 허용 출처"
+                  description="스니펫에서 자동으로 읽지 못한 출처를 쉼표로 구분해 적습니다. 아래 차단 목록의 “허용” 버튼이 여기에 더합니다."
+                  placeholder="https://pixel.example.internal, https://cdn.example.internal"
+                  value={settings.tracking.allowed_hosts}
+                  onChange={(event) => updateTracking({ allowed_hosts: event.currentTarget.value })}
+                />
+                <Switch
+                  checked={settings.tracking.include_admin}
+                  onChange={(event) => updateTracking({ include_admin: event.currentTarget.checked })}
+                  label="관리 화면도 추적"
+                  description="기본값은 OFF입니다. 서비스 관리·사용자 관리·인프라 화면으로 들어온 요청에는 스니펫을 넣지 않습니다."
+                />
+                <Switch
+                  checked={settings.tracking.allow_insecure_http}
+                  onChange={(event) => updateTracking({ allow_insecure_http: event.currentTarget.checked })}
+                  label="수집기 내부 HTTP 허용"
+                  description="기본값은 OFF입니다. TLS를 적용할 수 없는 신뢰된 내부 개발망에서만 사용하세요."
+                />
+
+                <Divider />
+                <Group justify="space-between" align="flex-start">
+                  <Box>
+                    <Title order={4}>정책이 차단한 출처</Title>
+                    <Text c="dimmed" size="sm" mt={3}>
+                      추적이 켜져 있는 동안 브라우저가 신고한 차단 내역입니다. 메모리에만 두며 서로 다른 출처 100개까지 기억합니다.
+                    </Text>
+                  </Box>
+                  <Group gap="xs">
+                    <Button type="button" size="xs" variant="default" leftSection={<RefreshCw size={14} />} onClick={() => violationsQuery.refetch()} loading={violationsQuery.isFetching}>
+                      새로 고침
+                    </Button>
+                    <Button type="button" size="xs" variant="subtle" color="red" leftSection={<Trash2 size={14} />} onClick={() => clearViolationsMutation.mutate()} loading={clearViolationsMutation.isPending} disabled={!violationsQuery.data?.length}>
+                      기록 지우기
+                    </Button>
+                  </Group>
+                </Group>
+                {violationsQuery.isError && (
+                  <Alert color="red" role="alert" title="차단 기록을 불러오지 못했습니다">{errorMessage(violationsQuery.error)}</Alert>
+                )}
+                {violationsQuery.data && violationsQuery.data.length === 0 && (
+                  <Text size="sm" c="dimmed">신고된 차단이 없습니다. 추적을 켠 뒤 화면을 한 번 열고 새로 고침하세요.</Text>
+                )}
+                {violationsQuery.data && violationsQuery.data.length > 0 && (
+                  <Table striped highlightOnHover withTableBorder aria-label="정책이 차단한 출처">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>출처</Table.Th>
+                        <Table.Th>지시어</Table.Th>
+                        <Table.Th>횟수</Table.Th>
+                        <Table.Th>마지막 화면</Table.Th>
+                        <Table.Th />
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {violationsQuery.data.map((item) => (
+                        <Table.Tr key={`${item.directive} ${item.origin}`}>
+                          <Table.Td style={{ overflowWrap: 'anywhere' }}><code>{item.origin}</code></Table.Td>
+                          <Table.Td><code>{item.directive}</code></Table.Td>
+                          <Table.Td>{item.count.toLocaleString('ko-KR')}</Table.Td>
+                          <Table.Td style={{ overflowWrap: 'anywhere' }}>{item.page}</Table.Td>
+                          <Table.Td>
+                            {item.allowed
+                              ? <Badge color="teal">허용됨</Badge>
+                              : (
+                                <Button type="button" size="xs" variant="light" onClick={() => allowOriginMutation.mutate(item.origin)} loading={allowOriginMutation.isPending}>
+                                  허용
+                                </Button>
+                              )}
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                )}
+              </Stack>
+            </Tabs.Panel>
           </Tabs>
         </Paper>
       </Stack>
@@ -1122,7 +1456,7 @@ export function AdminSettingsPage() {
   const normalized = normalizeSettings(settingsQuery.data);
   const formKey = JSON.stringify(normalized);
   const requestedTab = searchParams.get('tab');
-  const initialTab = ['general', 'approval', 'oidc', 'ai', 'security', 'notifications'].includes(requestedTab || '')
+  const initialTab = ['general', 'approval', 'oidc', 'ai', 'security', 'notifications', 'tracking'].includes(requestedTab || '')
     ? requestedTab as SettingsTab
     : 'general';
   return <AdminSettingsForm key={`${formKey}:${initialTab}`} initialSettings={normalized} initialTab={initialTab} />;
