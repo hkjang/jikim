@@ -5,7 +5,7 @@ go 1.26.6
 require (
 	github.com/coreos/go-oidc/v3 v3.14.1
 	github.com/jackc/pgx/v5 v5.9.2
-	golang.org/x/oauth2 v0.30.0
+	golang.org/x/oauth2 v0.37.0
 )
 
 require (
