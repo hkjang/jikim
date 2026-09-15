@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/hkjang/jikim/internal/mail"
 	"github.com/hkjang/jikim/internal/version"
 )
 
@@ -28,6 +29,7 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 			"oidc":    map[string]any{"provider": "Keycloak/OIDC discovery", "rp_initiated_logout": true},
 			"ai":      map[string]any{"profile": "OpenAI Chat Completions SSE", "streaming": true, "max_tokens": maximumAITokens},
 			"webhook": map[string]any{"delivery": true, "signing": "HMAC-SHA256", "history": true, "manual_retry": true},
+			"mail":    map[string]any{"transport": "SMTP relay", "events": []string{mail.EventApprovalRequested, mail.EventApprovalDecided, mail.EventRotationFailed}, "history": true, "test_send": true},
 		},
 	})
 }
@@ -150,6 +152,8 @@ func (s *Server) openAPI(w http.ResponseWriter, _ *http.Request) {
 		{"/api/v1/integrations/webhook/test", "post", "서명 Webhook 테스트", true},
 		{"/api/v1/integrations/webhook/deliveries", "get", "Webhook 전송 이력", true},
 		{"/api/v1/integrations/webhook/deliveries/{id}/retry", "post", "Webhook 재전송", true},
+		{"/api/v1/integrations/mail/test", "post", "SMTP 시험 발송", true},
+		{"/api/v1/integrations/mail/deliveries", "get", "메일 발송 기록", true},
 		{"/mcp", "get", "MCP stateless endpoint의 405 계약", false},
 		{"/mcp", "post", "MCP JSON-RPC", true},
 		{"/v1/sys/health", "get", "OpenBao health 호환", false},

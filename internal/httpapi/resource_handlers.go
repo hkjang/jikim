@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hkjang/jikim/internal/cryptox"
+	"github.com/hkjang/jikim/internal/mail"
 	"github.com/hkjang/jikim/internal/model"
 	"github.com/hkjang/jikim/internal/store"
 )
@@ -541,6 +542,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, decisio
 		eventType = "approval.approved"
 	}
 	s.queueWebhook(r, eventType, item.Resource, map[string]any{"action": item.Action, "approval_id": item.ID})
+	s.notifyApprovalDecided(r, item)
 	writeData(w, http.StatusOK, item)
 }
 
@@ -575,6 +577,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		"security":      map[string]any{},
 		"notifications": map[string]any{"enabled": false, "supported_events": store.SupportedWebhookEvents()},
 		"tracking":      map[string]any{"enabled": false},
+		"mail":          map[string]any{"enabled": false, "password_configured": false},
 	}
 	for _, item := range items {
 		switch item.Key {
@@ -584,6 +587,16 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 			result["approval"] = item.Value
 		case "oidc", "ai", "security", "notifications", "tracking":
 			result[item.Key] = item.Value
+		case mail.SettingKey:
+			// The password lives in its own encrypted row and is reported
+			// only as configured/not; the value itself never leaves the store.
+			value := cloneMap(item.Value)
+			configured, _ := result["mail"].(map[string]any)["password_configured"].(bool)
+			value["password_configured"] = configured
+			result["mail"] = value
+		case mail.PasswordSettingKey:
+			value, _ := result["mail"].(map[string]any)
+			value["password_configured"] = item.Configured
 		case "oidc_client_secret":
 			value, _ := result["oidc"].(map[string]any)
 			value["client_secret_configured"] = item.Configured
@@ -648,6 +661,9 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 	if ai, ok := input["ai"]; ok {
 		extractSecret(ai, "api_key", "clear_api_key", "ai_api_key")
 	}
+	if mailSettings, ok := input["mail"]; ok {
+		extractSecret(mailSettings, "password", "clear_password", mail.PasswordSettingKey)
+	}
 	if notifications, ok := input["notifications"]; ok {
 		extractSecret(notifications, "webhook_url", "clear_webhook", "notification_webhook")
 		extractSecret(notifications, "signing_secret", "clear_signing_secret", "notification_webhook_secret")
@@ -689,6 +705,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		delete(value, "api_key_configured")
 		delete(value, "webhook_configured")
 		delete(value, "signing_secret_configured")
+		delete(value, "password_configured")
 		delete(value, "supported_events")
 		if err := store.ValidateSetting(key, value); err != nil {
 			s.storeError(w, r, err)

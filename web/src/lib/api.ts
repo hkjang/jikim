@@ -53,6 +53,8 @@ export const testAIIntegration = <T>() => post<T>('/integrations/ai/test', {});
 
 export const testWebhookIntegration = <T>() => post<T>('/integrations/webhook/test', {});
 
+export const testMailIntegration = <T>(recipient: string) => post<T>('/integrations/mail/test', { recipient });
+
 export async function streamChat(
   payload: { messages: Array<{ role: string; content: string }>; max_tokens?: number },
   onChunk: (text: string) => void,

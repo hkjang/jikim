@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hkjang/jikim/internal/mail"
 	"github.com/hkjang/jikim/internal/model"
 	"github.com/hkjang/jikim/internal/tracking"
 )
@@ -26,11 +27,14 @@ var allowedSettingKeys = map[string]bool{
 	"notification_webhook":        true,
 	"notification_webhook_secret": true,
 	"tracking":                    true,
+	mail.SettingKey:               true,
+	mail.PasswordSettingKey:       true,
 }
 
 func SensitiveSetting(key string) bool {
 	return key == "oidc_client_secret" || key == "ai_api_key" ||
-		key == "notification_webhook" || key == "notification_webhook_secret"
+		key == "notification_webhook" || key == "notification_webhook_secret" ||
+		key == mail.PasswordSettingKey
 }
 
 func (s *Store) PutSetting(ctx context.Context, key string, value map[string]any, actorID string) error {
@@ -115,7 +119,7 @@ func ValidateWebhookURL(raw string, allowInsecure bool) error {
 
 func validateSetting(key string, value map[string]any) error {
 	switch key {
-	case "oidc_client_secret", "ai_api_key":
+	case "oidc_client_secret", "ai_api_key", mail.PasswordSettingKey:
 		secret, ok := value["value"].(string)
 		if !ok || strings.TrimSpace(secret) == "" {
 			return fmt.Errorf("%w: 민감 설정 값이 비어 있습니다", ErrInvalid)
@@ -290,6 +294,43 @@ func validateSetting(key string, value map[string]any) error {
 		}
 		if err := tracking.ReadConfig(value).Validate(); err != nil {
 			return fmt.Errorf("%w: 방문 추적: %v", ErrInvalid, err)
+		}
+	case mail.SettingKey:
+		// A mistyped switch would read as "off" and a mistyped port as 25;
+		// refuse both so a saved setting is the setting that applies.
+		for _, key := range append([]string{"enabled", "skip_tls_verify"}, mail.EventSwitches()...) {
+			if _, err := optionalBool(value, key); err != nil {
+				return err
+			}
+		}
+		for _, key := range []string{"smtp_host", "security", "username", "from_address", "from_name", "base_url"} {
+			if err := optionalString(value, key); err != nil {
+				return err
+			}
+		}
+		if err := optionalIntInRange(value, "smtp_port", 1, 65535); err != nil {
+			return err
+		}
+		if err := optionalIntInRange(value, "timeout_seconds", 1, 300); err != nil {
+			return err
+		}
+		if raw, ok := value["security"].(string); ok && raw != "" && raw != "auto" && raw != "none" && raw != "starttls" && raw != "tls" {
+			return fmt.Errorf("%w: security는 auto, none, starttls, tls 중 하나여야 합니다", ErrInvalid)
+		}
+		if raw, ok := value["from_address"].(string); ok && strings.TrimSpace(raw) != "" && !strings.Contains(raw, "@") {
+			return fmt.Errorf("%w: from_address는 메일 주소여야 합니다", ErrInvalid)
+		}
+		if raw, ok := value["base_url"].(string); ok && strings.TrimSpace(raw) != "" {
+			// Mail links are opened by people, so plain HTTP is allowed; the
+			// value still has to be a URL that a browser can follow.
+			if err := validateIntegrationURL(raw, true, false); err != nil {
+				return fmt.Errorf("%w: base_url: %v", ErrInvalid, err)
+			}
+		}
+		if enabled, _ := value["enabled"].(bool); enabled {
+			if err := mail.ReadConfig(value, "").Validate(); err != nil {
+				return fmt.Errorf("%w: 메일을 사용하려면 %s", ErrInvalid, strings.TrimPrefix(err.Error(), mail.ErrInvalid.Error()+": "))
+			}
 		}
 	case "service":
 		if err := optionalString(value, "service_name"); err != nil {

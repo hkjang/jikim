@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hkjang/jikim/internal/ids"
+	"github.com/hkjang/jikim/internal/mail"
 	"github.com/hkjang/jikim/internal/model"
 	"github.com/hkjang/jikim/internal/store"
 	"github.com/hkjang/jikim/internal/tracking"
@@ -36,6 +37,8 @@ type Server struct {
 	oidcStateOpener   func(string, any) error
 	trackingLoader    func(context.Context) (tracking.Config, error)
 	violations        *tracking.Recorder
+	mail              *mail.Service
+	reviewerLookup    func(context.Context, []string) ([]string, error)
 }
 
 func New(st *store.Store, logger *slog.Logger) http.Handler {
@@ -51,8 +54,10 @@ func New(st *store.Store, logger *slog.Logger) http.Handler {
 		aiLimiter:    newAIRequestLimiter(),
 		webhookSlots: make(chan struct{}, 16),
 		violations:   tracking.NewRecorder(),
+		mail:         mail.NewService(st, st, st, logger),
 	}
 	s.trackingLoader = st.TrackingConfig
+	s.reviewerLookup = st.ActiveUserIDsByRole
 	s.static = discoverStaticHandler(logger, s.decorateIndex)
 	mux := http.NewServeMux()
 	s.routes(mux)
@@ -134,6 +139,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/integrations/webhook/test", s.requireRoles(http.HandlerFunc(s.webhookTest), "admin"))
 	mux.Handle("GET /api/v1/integrations/webhook/deliveries", s.requireRoles(http.HandlerFunc(s.listWebhookDeliveries), "admin", "auditor"))
 	mux.Handle("POST /api/v1/integrations/webhook/deliveries/{id}/retry", s.requireRoles(http.HandlerFunc(s.retryWebhookDelivery), "admin"))
+	mux.Handle("POST /api/v1/integrations/mail/test", s.requireRoles(http.HandlerFunc(s.mailTest), "admin"))
+	mux.Handle("GET /api/v1/integrations/mail/deliveries", s.requireRoles(http.HandlerFunc(s.listMailDeliveries), "admin", "auditor"))
 
 	mux.HandleFunc("POST "+cspReportPath, s.receiveCSPReport)
 	mux.Handle("GET /api/v1/tracking/violations", s.requireRoles(http.HandlerFunc(s.listTrackingViolations), "admin"))
