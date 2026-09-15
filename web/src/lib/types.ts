@@ -134,5 +134,6 @@ export interface SystemSettings {
   security?: Record<string, unknown>;
   notifications?: Record<string, unknown>;
   tracking?: Record<string, unknown>;
+  mail?: Record<string, unknown>;
   [key: string]: unknown;
 }

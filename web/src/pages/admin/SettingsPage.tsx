@@ -34,6 +34,7 @@ import {
   CircleAlert,
   KeyRound,
   Languages,
+  Mail,
   RefreshCw,
   RotateCcw,
   Save,
@@ -43,12 +44,12 @@ import {
   UsersRound,
   Webhook,
 } from 'lucide-react';
-import { del, get, patch, post, testAIIntegration, testWebhookIntegration } from '../../lib/api';
+import { del, get, patch, post, testAIIntegration, testMailIntegration, testWebhookIntegration } from '../../lib/api';
 import type { IntegrationTestResult, SystemSettings } from '../../lib/types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 
-type SettingsTab = 'general' | 'approval' | 'oidc' | 'ai' | 'security' | 'notifications' | 'tracking';
+type SettingsTab = 'general' | 'approval' | 'oidc' | 'ai' | 'security' | 'notifications' | 'tracking' | 'mail';
 
 interface GeneralSettings {
   service_name: string;
@@ -132,6 +133,40 @@ interface TrackingSettings {
   allow_insecure_http: boolean;
 }
 
+type MailSecurity = 'auto' | 'none' | 'starttls' | 'tls';
+
+interface MailSettings {
+  enabled: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  security: MailSecurity;
+  skip_tls_verify: boolean;
+  username: string;
+  password: string;
+  password_configured: boolean;
+  clear_password: boolean;
+  from_address: string;
+  from_name: string;
+  base_url: string;
+  timeout_seconds: number;
+  notify_approval_request: boolean;
+  notify_approval_decision: boolean;
+  notify_rotation_failed: boolean;
+}
+
+interface MailDelivery {
+  id: string;
+  event: string;
+  recipient: string;
+  subject: string;
+  resource?: string;
+  status: 'queued' | 'sent' | 'failed';
+  attempts: number;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface TrackingViolation {
   origin: string;
   directive: string;
@@ -149,6 +184,7 @@ interface AdminSettings {
   security: SecuritySettings;
   notifications: NotificationSettings;
   tracking: TrackingSettings;
+  mail: MailSettings;
 }
 
 interface OidcTestResult {
@@ -185,6 +221,25 @@ const trackingProviders: Array<{ value: TrackingProvider; label: string }> = [
   { value: 'matomo', label: 'Matomo' },
   { value: 'custom', label: '직접 붙여넣기' },
 ];
+
+const mailSecurityModes: Array<{ value: MailSecurity; label: string }> = [
+  { value: 'auto', label: '자동 (서버가 알리면 STARTTLS)' },
+  { value: 'none', label: '암호화 없음' },
+  { value: 'starttls', label: 'STARTTLS 필수' },
+  { value: 'tls', label: 'TLS (implicit, 보통 465)' },
+];
+
+const mailEvents: Array<{ key: 'notify_approval_request' | 'notify_approval_decision' | 'notify_rotation_failed'; label: string; description: string }> = [
+  { key: 'notify_approval_request', label: '승인 요청 → 검토자', description: '검토자가 모르면 요청자는 기다리기만 합니다.' },
+  { key: 'notify_approval_decision', label: '승인·반려 결과 → 요청자', description: '결과를 기다리며 화면을 새로고침하지 않게 합니다.' },
+  { key: 'notify_rotation_failed', label: '회전 실패 → Secret 소유자', description: '조용히 실패한 회전은 만료된 자격증명이 됩니다.' },
+];
+
+const mailStatusLabels: Record<MailDelivery['status'], { label: string; color: string }> = {
+  queued: { label: '대기', color: 'gray' },
+  sent: { label: '발송', color: 'teal' },
+  failed: { label: '실패', color: 'red' },
+};
 
 const maxSnippetBytes = 8 * 1024;
 
@@ -236,6 +291,8 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
   const notification = record(root.notifications);
   const tracking = record(root.tracking);
   const provider = stringValue(tracking.provider, 'momento');
+  const mail = record(root.mail);
+  const mailSecurity = stringValue(mail.security, 'auto');
 
   return {
     general: {
@@ -311,6 +368,24 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
       placement: tracking.placement === 'body' ? 'body' : 'head',
       allow_insecure_http: booleanValue(tracking.allow_insecure_http),
     },
+    mail: {
+      enabled: booleanValue(mail.enabled),
+      smtp_host: stringValue(mail.smtp_host),
+      smtp_port: numberValue(mail.smtp_port, 25),
+      security: mailSecurityModes.some((item) => item.value === mailSecurity) ? mailSecurity as MailSecurity : 'auto',
+      skip_tls_verify: booleanValue(mail.skip_tls_verify),
+      username: stringValue(mail.username),
+      password: '',
+      password_configured: booleanValue(mail.password_configured),
+      clear_password: false,
+      from_address: stringValue(mail.from_address),
+      from_name: stringValue(mail.from_name, 'jikim'),
+      base_url: stringValue(mail.base_url),
+      timeout_seconds: numberValue(mail.timeout_seconds, 10),
+      notify_approval_request: booleanValue(mail.notify_approval_request, true),
+      notify_approval_decision: booleanValue(mail.notify_approval_decision, true),
+      notify_rotation_failed: booleanValue(mail.notify_rotation_failed, true),
+    },
   };
 }
 
@@ -370,6 +445,24 @@ function settingsPayload(settings: AdminSettings, redirectUrl: string): Record<s
     allow_insecure_http: settings.tracking.allow_insecure_http,
   };
 
+  const mail: Record<string, unknown> = {
+    enabled: settings.mail.enabled,
+    smtp_host: settings.mail.smtp_host.trim(),
+    smtp_port: settings.mail.smtp_port,
+    security: settings.mail.security,
+    skip_tls_verify: settings.mail.skip_tls_verify,
+    username: settings.mail.username.trim(),
+    from_address: settings.mail.from_address.trim(),
+    from_name: settings.mail.from_name.trim(),
+    base_url: settings.mail.base_url.trim(),
+    timeout_seconds: settings.mail.timeout_seconds,
+    notify_approval_request: settings.mail.notify_approval_request,
+    notify_approval_decision: settings.mail.notify_approval_decision,
+    notify_rotation_failed: settings.mail.notify_rotation_failed,
+    clear_password: settings.mail.clear_password,
+  };
+  if (settings.mail.password) mail.password = settings.mail.password;
+
   return {
     general: settings.general,
     approval: { ...settings.approval, approval_enabled: settings.approval.enabled },
@@ -378,6 +471,7 @@ function settingsPayload(settings: AdminSettings, redirectUrl: string): Record<s
     security: settings.security,
     notifications,
     tracking,
+    mail,
   };
 }
 
@@ -408,6 +502,11 @@ function webhookSettingsSignature(settings: NotificationSettings): string {
     clear_webhook: settings.clear_webhook,
     rotate_signing_secret: settings.rotate_signing_secret,
   });
+}
+
+function mailSettingsSignature(settings: MailSettings): string {
+  const { password, ...rest } = settings;
+  return JSON.stringify({ ...rest, new_password: Boolean(password) });
 }
 
 function errorMessage(error: unknown): string {
@@ -463,6 +562,8 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
   const [oidcResult, setOidcResult] = useState<OidcTestResult | null>(null);
   const [aiResult, setAiResult] = useState<IntegrationTestResult | null>(null);
   const [webhookResult, setWebhookResult] = useState<IntegrationTestResult | null>(null);
+  const [mailResult, setMailResult] = useState<IntegrationTestResult | null>(null);
+  const [mailRecipient, setMailRecipient] = useState('');
   const [saveValidation, setSaveValidation] = useState<string | null>(null);
   const redirectUrl = `${window.location.origin}/api/v1/oidc/callback`;
 
@@ -477,6 +578,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
   const updateSecurity = (patch: Partial<SecuritySettings>) => setSettings((current) => ({ ...current, security: { ...current.security, ...patch } }));
   const updateNotifications = (patch: Partial<NotificationSettings>) => setSettings((current) => ({ ...current, notifications: { ...current.notifications, ...patch } }));
   const updateTracking = (patch: Partial<TrackingSettings>) => setSettings((current) => ({ ...current, tracking: { ...current.tracking, ...patch } }));
+  const updateMail = (patch: Partial<MailSettings>) => setSettings((current) => ({ ...current, mail: { ...current.mail, ...patch } }));
 
   const saveMutation = useMutation({
     mutationFn: () => patch<unknown>('/settings', settingsPayload(settings, redirectUrl)),
@@ -504,12 +606,19 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
           signing_secret_configured: settings.notifications.signing_secret_configured || settings.notifications.webhook_configured || Boolean(settings.notifications.signing_secret) || Boolean(settings.notifications.webhook_url),
           rotate_signing_secret: false,
         },
+        mail: {
+          ...settings.mail,
+          password: '',
+          password_configured: Boolean(settings.mail.password) || (settings.mail.password_configured && !settings.mail.clear_password),
+          clear_password: false,
+        },
       };
       setSettings(persisted);
       setSavedSettings(persisted);
       setSaveValidation(null);
       setAiResult(null);
       setWebhookResult(null);
+      setMailResult(null);
       await queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
       notifications.show({ color: 'teal', title: '설정 저장 완료', message: '변경한 관리 설정을 안전하게 저장했습니다.' });
     },
@@ -581,6 +690,22 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
     onError: (error) => setWebhookResult({ ok: false, message: errorMessage(error) }),
   });
 
+  const mailDeliveriesQuery = useQuery({
+    queryKey: ['mail-deliveries'],
+    queryFn: () => get<MailDelivery[]>('/integrations/mail/deliveries?limit=50'),
+    enabled: activeTab === 'mail',
+  });
+
+  const mailTestMutation = useMutation({
+    mutationFn: () => testMailIntegration<IntegrationTestResult>(mailRecipient.trim()),
+    onSuccess: async (result) => {
+      setMailResult(result);
+      await queryClient.invalidateQueries({ queryKey: ['mail-deliveries'] });
+      notifications.show({ color: result.ok ? 'teal' : 'red', title: result.ok ? '테스트 메일 발송' : '테스트 메일 실패', message: result.message || (result.ok ? '릴레이가 메일을 받았습니다.' : '릴레이 설정을 확인하세요.') });
+    },
+    onError: (error) => setMailResult({ ok: false, message: errorMessage(error) }),
+  });
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSaveValidation(null);
@@ -640,6 +765,16 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
       setSaveValidation('추적 스니펫은 8KB를 넘을 수 없습니다.');
       return;
     }
+    if (settings.mail.enabled && !settings.mail.smtp_host.trim()) {
+      setActiveTab('mail');
+      setSaveValidation('메일 알림을 사용하려면 SMTP 릴레이 주소를 입력하세요.');
+      return;
+    }
+    if (settings.mail.from_address.trim() && !settings.mail.from_address.includes('@')) {
+      setActiveTab('mail');
+      setSaveValidation('보내는 사람 주소는 메일 주소 형식이어야 합니다.');
+      return;
+    }
     saveMutation.mutate();
   };
 
@@ -647,6 +782,8 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
   const webhookHasUnsavedChanges = webhookSettingsSignature(settings.notifications) !== webhookSettingsSignature(savedSettings.notifications);
   const aiTestReady = Boolean(savedSettings.ai.base_url.trim()) && Boolean(savedSettings.ai.model.trim()) && !aiHasUnsavedChanges;
   const webhookTestReady = savedSettings.notifications.webhook_configured && savedSettings.notifications.signing_secret_configured && !webhookHasUnsavedChanges;
+  const mailHasUnsavedChanges = mailSettingsSignature(settings.mail) !== mailSettingsSignature(savedSettings.mail);
+  const mailTestReady = savedSettings.mail.enabled && Boolean(savedSettings.mail.smtp_host.trim()) && !mailHasUnsavedChanges;
 
   return (
     <form onSubmit={submit} noValidate>
@@ -666,6 +803,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 setOidcResult(null);
                 setAiResult(null);
                 setWebhookResult(null);
+                setMailResult(null);
                 setSaveValidation(null);
               }}
               disabled={saveMutation.isPending}
@@ -702,6 +840,12 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 방문 추적
                 <Badge ml={8} size="xs" color={settings.tracking.enabled ? 'teal' : 'gray'}>
                   {settings.tracking.enabled ? '사용' : '미사용'}
+                </Badge>
+              </Tabs.Tab>
+              <Tabs.Tab value="mail" leftSection={<Mail size={16} />} style={{ flexShrink: 0 }}>
+                메일
+                <Badge ml={8} size="xs" color={settings.mail.enabled ? 'teal' : 'gray'}>
+                  {settings.mail.enabled ? '사용' : '미사용'}
                 </Badge>
               </Tabs.Tab>
             </Tabs.List>
@@ -1223,7 +1367,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 </Group>
                 {webhookHasUnsavedChanges && <Text size="sm" c="dimmed">변경 사항을 저장하면 새 URL과 서명 Secret으로 테스트 이벤트를 보낼 수 있습니다.</Text>}
                 {!webhookHasUnsavedChanges && webhookResult && <IntegrationResultAlert result={webhookResult} successTitle="Webhook 전달 확인 완료" failureTitle="Webhook 전달 확인 실패" />}
-                <Text size="sm" c="dimmed">이 릴리스의 알림 채널은 서명 Webhook만 지원합니다. 이메일·SMTP 알림은 제공하지 않습니다.</Text>
+                <Text size="sm" c="dimmed">Webhook은 시스템 연동용입니다. 사람에게 가는 승인·회전 실패 알림은 <strong>메일</strong> 탭에서 사내 SMTP 릴레이로 보냅니다.</Text>
               </Stack>
             </Tabs.Panel>
 
@@ -1420,6 +1564,210 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                 )}
               </Stack>
             </Tabs.Panel>
+
+            <Tabs.Panel value="mail" pt="xl">
+              <Stack gap="xl">
+                <SectionHeading icon={<Mail size={20} />} title="SMTP 메일 알림" description="사람이 실제로 기다리는 일 — 승인 요청, 승인 결과, 회전 실패 — 을 사내 SMTP 릴레이로 보냅니다. 기본값은 꺼짐입니다." />
+                <Alert color="blue" title="요청을 막지 않습니다">
+                  메일은 배경에서 보내며 릴레이가 죽어 있어도 승인·회전 요청은 평소처럼 끝납니다. 시도마다 아래 발송 기록에 남고, 본문은 기록하지 않습니다.
+                  자기가 한 일은 자기에게 보내지 않습니다.
+                </Alert>
+                <Switch
+                  size="md"
+                  checked={settings.mail.enabled}
+                  onChange={(event) => updateMail({ enabled: event.currentTarget.checked })}
+                  label="메일 알림 사용"
+                  description="저장 후 발생하는 이벤트부터 보냅니다. 사내 릴레이는 보통 포트 25·인증 없음·TLS 없음이며 그것이 기본값입니다."
+                />
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+                  <TextInput
+                    label="SMTP 릴레이 주소"
+                    description="mail.smtp_host"
+                    placeholder="relay.corp.example"
+                    required={settings.mail.enabled}
+                    value={settings.mail.smtp_host}
+                    onChange={(event) => updateMail({ smtp_host: event.currentTarget.value })}
+                  />
+                  <NumberInput
+                    label="포트"
+                    description="mail.smtp_port — 사내 릴레이는 대개 25"
+                    min={1}
+                    max={65535}
+                    value={settings.mail.smtp_port}
+                    onChange={(value) => updateMail({ smtp_port: typeof value === 'number' ? value : 25 })}
+                  />
+                  <Select
+                    label="보안"
+                    description="mail.security — 자동은 서버가 STARTTLS를 알릴 때만 씁니다."
+                    data={mailSecurityModes}
+                    value={settings.mail.security}
+                    allowDeselect={false}
+                    onChange={(value) => updateMail({ security: (value || 'auto') as MailSecurity })}
+                  />
+                  <NumberInput
+                    label="제한 시간 (초)"
+                    description="mail.timeout_seconds"
+                    min={1}
+                    max={300}
+                    value={settings.mail.timeout_seconds}
+                    onChange={(value) => updateMail({ timeout_seconds: typeof value === 'number' ? value : 10 })}
+                  />
+                  <TextInput
+                    label="사용자 이름 (선택)"
+                    description="mail.username — 인증 없는 릴레이면 비워 둡니다."
+                    autoComplete="off"
+                    value={settings.mail.username}
+                    onChange={(event) => updateMail({ username: event.currentTarget.value })}
+                  />
+                  <PasswordInput
+                    label="비밀번호 (선택)"
+                    description={settings.mail.password_configured ? '저장된 비밀번호가 있습니다. 비워두면 기존 값을 유지합니다.' : '인증하는 릴레이에서만 입력합니다.'}
+                    placeholder={settings.mail.password_configured ? '•••••••••••• (설정됨)' : ''}
+                    autoComplete="new-password"
+                    value={settings.mail.password}
+                    onChange={(event) => updateMail({ password: event.currentTarget.value, clear_password: false })}
+                  />
+                  <TextInput
+                    type="email"
+                    label="보내는 사람 주소"
+                    description="mail.from_address — 비우면 jikim@<릴레이 주소>"
+                    placeholder="jikim@corp.example"
+                    value={settings.mail.from_address}
+                    onChange={(event) => updateMail({ from_address: event.currentTarget.value })}
+                  />
+                  <TextInput
+                    label="보내는 사람 이름"
+                    description="mail.from_name"
+                    placeholder="jikim"
+                    value={settings.mail.from_name}
+                    onChange={(event) => updateMail({ from_name: event.currentTarget.value })}
+                  />
+                  <TextInput
+                    type="url"
+                    label="이 앱의 주소"
+                    description="mail.base_url — 메일 속 '바로 열기' 링크가 가리킬 주소. 비우면 링크를 넣지 않습니다."
+                    placeholder="https://jikim.corp.example"
+                    value={settings.mail.base_url}
+                    onChange={(event) => updateMail({ base_url: event.currentTarget.value })}
+                  />
+                </SimpleGrid>
+                <Group gap="xs">
+                  {settings.mail.clear_password
+                    ? <Badge color="orange">비밀번호 저장 시 삭제</Badge>
+                    : settings.mail.password_configured && <Badge color="teal">비밀번호 설정됨</Badge>}
+                  {settings.mail.password_configured && !settings.mail.clear_password && (
+                    <Button
+                      type="button"
+                      size="xs"
+                      color="red"
+                      variant="subtle"
+                      leftSection={<Trash2 size={15} />}
+                      onClick={() => {
+                        if (!window.confirm('저장된 SMTP 비밀번호를 삭제할까요?')) return;
+                        updateMail({ password: '', clear_password: true });
+                      }}
+                    >
+                      비밀번호 삭제
+                    </Button>
+                  )}
+                </Group>
+                <Switch
+                  checked={settings.mail.skip_tls_verify}
+                  onChange={(event) => updateMail({ skip_tls_verify: event.currentTarget.checked })}
+                  label="TLS 인증서 검증 건너뛰기"
+                  description="mail.skip_tls_verify — 사내 인증서가 사설이고 CA를 신뢰 저장소에 넣을 수 없을 때만 켭니다."
+                />
+                <Stack gap="xs">
+                  <Text fw={600} size="sm">보낼 이벤트</Text>
+                  <Text size="sm" c="dimmed">이 메일이 오지 않으면 누군가 손해를 보거나 화면을 계속 새로고침하는 일만 고릅니다. 종류별로 끌 수 있습니다.</Text>
+                  {mailEvents.map((event) => (
+                    <Switch
+                      key={event.key}
+                      checked={settings.mail[event.key]}
+                      disabled={!settings.mail.enabled}
+                      onChange={(changed) => updateMail({ [event.key]: changed.currentTarget.checked } as Partial<MailSettings>)}
+                      label={event.label}
+                      description={`mail.${event.key} — ${event.description}`}
+                    />
+                  ))}
+                </Stack>
+
+                <Divider />
+                <Stack gap="sm">
+                  <Title order={4}>시험 발송</Title>
+                  <Text c="dimmed" size="sm">저장한 설정으로 실제 한 통을 보내고 결과를 여기서 보여 줍니다. 릴레이 설정은 한 번에 맞는 일이 드뭅니다.</Text>
+                  <Group align="flex-end" wrap="wrap">
+                    <TextInput
+                      type="email"
+                      label="받는 사람"
+                      placeholder="비우면 내 프로필의 이메일"
+                      value={mailRecipient}
+                      onChange={(event) => setMailRecipient(event.currentTarget.value)}
+                      style={{ flex: '1 1 260px' }}
+                    />
+                    <Button
+                      type="button"
+                      variant="light"
+                      leftSection={mailTestMutation.isPending ? <Loader size={16} /> : <Mail size={17} />}
+                      loading={mailTestMutation.isPending}
+                      disabled={!mailTestReady}
+                      onClick={() => mailTestMutation.mutate()}
+                    >
+                      테스트 메일 보내기
+                    </Button>
+                  </Group>
+                  {mailHasUnsavedChanges && <Text size="sm" c="dimmed">변경 사항을 저장하면 새 설정으로 테스트 메일을 보낼 수 있습니다.</Text>}
+                  {!mailHasUnsavedChanges && !savedSettings.mail.enabled && <Text size="sm" c="dimmed">메일 알림을 켜고 저장한 뒤 시험 발송할 수 있습니다.</Text>}
+                  {!mailHasUnsavedChanges && mailResult && <IntegrationResultAlert result={mailResult} successTitle="테스트 메일을 보냈습니다" failureTitle="테스트 메일을 보내지 못했습니다" />}
+                </Stack>
+
+                <Divider />
+                <Group justify="space-between" align="flex-start">
+                  <Box>
+                    <Title order={4}>발송 기록</Title>
+                    <Text c="dimmed" size="sm" mt={3}>최근 50건. 언제, 어떤 이벤트로, 누구에게, 무슨 제목으로 나갔고 되었는지 안 되었는지를 남깁니다. 본문은 남기지 않습니다.</Text>
+                  </Box>
+                  <Button type="button" size="xs" variant="default" leftSection={<RefreshCw size={14} />} onClick={() => mailDeliveriesQuery.refetch()} loading={mailDeliveriesQuery.isFetching}>
+                    새로 고침
+                  </Button>
+                </Group>
+                {mailDeliveriesQuery.isError && (
+                  <Alert color="red" role="alert" title="발송 기록을 불러오지 못했습니다">{errorMessage(mailDeliveriesQuery.error)}</Alert>
+                )}
+                {mailDeliveriesQuery.data && mailDeliveriesQuery.data.length === 0 && (
+                  <Text size="sm" c="dimmed">아직 보낸 메일이 없습니다.</Text>
+                )}
+                {mailDeliveriesQuery.data && mailDeliveriesQuery.data.length > 0 && (
+                  <Table striped highlightOnHover withTableBorder aria-label="메일 발송 기록">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>시각</Table.Th>
+                        <Table.Th>이벤트</Table.Th>
+                        <Table.Th>받는 사람</Table.Th>
+                        <Table.Th>제목</Table.Th>
+                        <Table.Th>상태</Table.Th>
+                        <Table.Th>오류</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {mailDeliveriesQuery.data.map((item) => (
+                        <Table.Tr key={item.id}>
+                          <Table.Td style={{ whiteSpace: 'nowrap' }}>{new Date(item.created_at).toLocaleString('ko-KR')}</Table.Td>
+                          <Table.Td><code>{item.event}</code></Table.Td>
+                          <Table.Td style={{ overflowWrap: 'anywhere' }}>{item.recipient}</Table.Td>
+                          <Table.Td style={{ overflowWrap: 'anywhere' }}>{item.subject}</Table.Td>
+                          <Table.Td>
+                            <Badge color={mailStatusLabels[item.status]?.color ?? 'gray'}>{mailStatusLabels[item.status]?.label ?? item.status}</Badge>
+                            {item.attempts > 1 && <Text size="xs" c="dimmed">{item.attempts}회 시도</Text>}
+                          </Table.Td>
+                          <Table.Td style={{ overflowWrap: 'anywhere' }}><Text size="sm" c="dimmed">{item.error_message || ''}</Text></Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                )}
+              </Stack>
+            </Tabs.Panel>
           </Tabs>
         </Paper>
       </Stack>
@@ -1466,7 +1814,7 @@ export function AdminSettingsPage() {
   const normalized = normalizeSettings(settingsQuery.data);
   const formKey = JSON.stringify(normalized);
   const requestedTab = searchParams.get('tab');
-  const initialTab = ['general', 'approval', 'oidc', 'ai', 'security', 'notifications', 'tracking'].includes(requestedTab || '')
+  const initialTab = ['general', 'approval', 'oidc', 'ai', 'security', 'notifications', 'tracking', 'mail'].includes(requestedTab || '')
     ? requestedTab as SettingsTab
     : 'general';
   return <AdminSettingsForm key={`${formKey}:${initialTab}`} initialSettings={normalized} initialTab={initialTab} />;

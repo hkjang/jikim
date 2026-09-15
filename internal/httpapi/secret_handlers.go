@@ -244,6 +244,7 @@ func (s *Server) putOrRequestSecret(w http.ResponseWriter, r *http.Request, inpu
 			return
 		}
 		s.queueWebhook(r, "approval.requested", approval.Resource, map[string]any{"action": approval.Action, "approval_id": approval.ID})
+		s.notifyApprovalRequested(r, approval)
 		writeData(w, http.StatusAccepted, approval)
 		return
 	}
@@ -251,6 +252,7 @@ func (s *Server) putOrRequestSecret(w http.ResponseWriter, r *http.Request, inpu
 	if err != nil {
 		if eventType == "secret.rotated" {
 			s.queueWebhook(r, "rotation.failed", strings.Trim(input.Path, "/"), map[string]any{"reason": "secret_write_failed"})
+			s.notifyRotationFailed(r, strings.Trim(input.Path, "/"), input.OwnerUserID, err)
 		}
 		s.storeError(w, r, err)
 		return
@@ -287,6 +289,7 @@ func (s *Server) deleteSecret(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.queueWebhook(r, "approval.requested", approval.Resource, map[string]any{"action": approval.Action, "approval_id": approval.ID})
+		s.notifyApprovalRequested(r, approval)
 		writeData(w, http.StatusAccepted, approval)
 		return
 	}

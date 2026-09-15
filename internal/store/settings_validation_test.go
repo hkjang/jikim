@@ -134,3 +134,31 @@ func TestTrackingSettingsValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestMailSettingIsTypedAndOffByDefault(t *testing.T) {
+	if !SensitiveSetting("mail_password") {
+		t.Fatal("mail_password must be stored encrypted and never echoed")
+	}
+	if err := ValidateSetting("mail_password", map[string]any{"value": "x"}); err == nil {
+		t.Fatal("the password row was accepted through the general settings path")
+	}
+	if err := ValidateSetting("mail", map[string]any{"enabled": "true"}); err == nil {
+		t.Fatal("string enabled was accepted")
+	}
+	if err := ValidateSetting("mail", map[string]any{"smtp_port": "25"}); err == nil {
+		t.Fatal("string smtp_port was accepted")
+	}
+	if err := ValidateSetting("mail", map[string]any{"security": "ssl"}); err == nil {
+		t.Fatal("unknown security mode was accepted")
+	}
+	if err := ValidateSetting("mail", map[string]any{"enabled": true, "from_address": "jikim@corp.example"}); err == nil || !strings.Contains(err.Error(), "smtp_host") {
+		t.Fatalf("enabled mail without a relay host was accepted: %v", err)
+	}
+	// Port 25, no credentials, no TLS: the common internal relay needs only a host.
+	if err := ValidateSetting("mail", map[string]any{"enabled": true, "smtp_host": "relay.corp.example"}); err != nil {
+		t.Fatalf("minimal internal relay rejected: %v", err)
+	}
+	if err := ValidateSetting("mail", map[string]any{"enabled": false}); err != nil {
+		t.Fatalf("switched-off mail rejected: %v", err)
+	}
+}

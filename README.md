@@ -19,6 +19,7 @@ jikim은 Secret 값만 보관하는 도구를 넘어 애플리케이션, 소유�
 | 감사 | 구현 | 요청 ID, 사용자, 작업, 리소스, 상태, IP 중심 기록과 검색 |
 | AI | 구현 프로파일 | OpenAI Chat Completions SSE, 실연결 확인, Bearer/API-Key/무인증, 요청 제한, `max_tokens` 최대 262,144 |
 | Webhook | 구현 | HMAC-SHA256 서명 전송, 이벤트 필터, 연결 확인, 이력과 수동 재시도 |
+| 메일 알림 | 구현 | 사내 SMTP 릴레이로 승인 요청·승인 결과·회전 실패를 배경 발송; 기본 비활성, 시험 발송과 발송 기록 |
 | MCP | 구현 프로파일 | Streamable HTTP stateless, 2025-11-25/2025-06-18, 권한 확인·metadata·정책·감사·Transit 도구 |
 | OpenBao API | 제한 프리뷰 | Health, Userpass, Token 일부, KV v2 CAS·버전 삭제/복구/폐기·metadata, Transit 일부; 전체 differential suite 미구현 |
 | 오프라인 Docker | 구현 | `jikim:v0.2.13`, `jikim-v0.2.13.tar.gz`, SHA-256, egress 차단 스모크와 전체 화면 E2E |
