@@ -129,7 +129,7 @@ mount 이름은 `transit`으로 고정되며 key는 `/`를 포함할 수 없습�
 - `context`, `nonce`, `associated_data`, 0이 아닌 `key_version`은 구현하지 않으므로 조용히 무시하지 않고 해당 항목을 `error`로 처리합니다.
 - decrypt는 batch 전체를 하나의 감사 이벤트로 기록하며 감사 기록에 실패하면 `503`과 함께 어떤 평문도 반환하지 않습니다.
 
-오류 응답은 원인에 따라 나뉩니다. 잘못된 base64 평문·ciphertext 형식·인증 실패 같은 요청 오류는 `400`과 함께 이유를 돌려주고, 존재하지 않는 key나 key 버전으로 decrypt하면 `400`과 `encryption key not found`입니다. DB 장애 등 서버 측 실패는 `500`이며 driver·crypto 내부 오류 문자열은 응답에 담지 않습니다. batch에서도 같은 판정을 항목별 `error` 문자열에 적용합니다.
+오류 응답은 원인에 따라 나뉩니다. 잘못된 base64 평문·ciphertext 형식·인증 실패 같은 요청 오류는 `400`과 함께 이유를 돌려주고, 존재하지 않는 key나 key 버전으로 decrypt하면 `400`과 `encryption key not found`입니다(key 부재는 `transit/{key}` 경로의 decrypt capability를 통과한 뒤에만 알려 주며, capability가 없으면 key 존재 여부와 무관하게 `403`입니다). DB 장애 등 서버 측 실패는 `500`이며 driver·crypto 내부 오류 문자열은 응답에 담지 않습니다. batch에서도 같은 판정을 항목별 `error` 문자열에 적용합니다.
 
 rewrap, sign, verify, HMAC, datakey, key 생성·조회·설정·rotate API(`/v1/transit/keys/*`)는 `/v1`에 없습니다. key 생성과 rotate는 jikim 관리 API에서 제공합니다.
 

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -94,13 +95,17 @@ func baoAllow(w http.ResponseWriter, allowed bool, err error) bool {
 }
 
 // baoAccessFailure maps a failed capability lookup to its OpenBao-facing status
-// and message. Only ErrInvalid carries a caller-safe explanation, the other
-// store sentinels stay a denial as OpenBao reports it, and anything else is a
-// server fault whose driver detail must not reach the client.
+// and message. Only ErrInvalid carries a caller-safe explanation, a transit key
+// that is absent after the path capability passed is the request error OpenBao
+// reports for it, the other store sentinels stay a denial as OpenBao reports
+// it, and anything else is a server fault whose driver detail must not reach
+// the client.
 func baoAccessFailure(err error) (int, string) {
 	switch {
 	case errors.Is(err, store.ErrInvalid):
 		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, errTransitKeyNotFound):
+		return http.StatusBadRequest, "encryption key not found"
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrForbidden), errors.Is(err, store.ErrUnauthorized):
 		return http.StatusForbidden, "permission denied"
 	default:
@@ -813,11 +818,23 @@ func (s *Server) authorizeTransit(r *http.Request, user model.User, key, operati
 		return false, err
 	}
 	permission, err := s.store.TransitPermission(r.Context(), key, operation)
-	if errors.Is(err, store.ErrNotFound) && operation == "encrypt" {
-		return s.store.CanAccess(r.Context(), user, "transit/"+strings.Trim(key, "/"), "create")
+	if errors.Is(err, store.ErrNotFound) {
+		if operation == "encrypt" {
+			return s.store.CanAccess(r.Context(), user, "transit/"+strings.Trim(key, "/"), "create")
+		}
+		// The caller already holds the path capability, so naming the missing
+		// key reveals nothing the policy did not grant. Reporting it as a
+		// denial would send the caller after a policy that is not the cause.
+		return false, errTransitKeyNotFound
 	}
 	return permission, err
 }
+
+// errTransitKeyNotFound is a transit operation on a key that does not exist,
+// raised only after the path capability check passed. It wraps ErrNotFound so
+// MCP keeps its not-found mapping while the OpenBao surface answers the way
+// OpenBao does for a missing key.
+var errTransitKeyNotFound = fmt.Errorf("%w: encryption key not found", store.ErrNotFound)
 
 func transitCiphertextVersion(ciphertext string) (int, error) {
 	parts := strings.SplitN(ciphertext, ":", 3)
