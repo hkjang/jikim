@@ -152,3 +152,65 @@ func TestMCPSecretMetadataAuthorizationOutageIsServerFault(t *testing.T) {
 		t.Fatalf("generic failure message missing: %s", response.Body.String())
 	}
 }
+
+// A decrypt against a key that does not exist is not a policy problem once the
+// path capability has passed: OpenBao reports it as the request error
+// "encryption key not found", the same answer the decrypt itself gives for a
+// missing key version. Folding it into "permission denied" sends the caller
+// after a policy that is not the cause, and contradicts the encrypt side,
+// which never treats an absent key as a denial.
+func TestOpenBaoTransitMissingKeyIsRequestErrorNotDenial(t *testing.T) {
+	status, message := baoAccessFailure(errTransitKeyNotFound)
+	if status != http.StatusBadRequest || message != "encryption key not found" {
+		t.Fatalf("status=%d message=%q", status, message)
+	}
+	// A bare ErrNotFound from the policy lookup still says nothing the caller may learn.
+	if status, message := baoAccessFailure(store.ErrNotFound); status != http.StatusForbidden || message != "permission denied" {
+		t.Fatalf("policy target status=%d message=%q", status, message)
+	}
+
+	server := &Server{
+		transitAuthorizer: func(_ context.Context, _ model.User, _ string, operation string) (bool, error) {
+			if operation != "decrypt" {
+				t.Fatalf("operation=%q", operation)
+			}
+			return false, errTransitKeyNotFound
+		},
+		auditRecorder: func(context.Context, model.AuditEvent) error {
+			t.Fatal("nothing was decrypted, so nothing should be audited")
+			return nil
+		},
+	}
+	response := httptest.NewRecorder()
+	server.baoTransitDecrypt(response, transitBatchRequest("/v1/transit/decrypt/customer", "customer",
+		`{"ciphertext":"vault:v1:a"}`))
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "encryption key not found") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "permission denied") {
+		t.Fatalf("missing key was reported as a denial: %s", response.Body.String())
+	}
+}
+
+// The MCP surface keeps its own not-found mapping for the same condition and
+// records the failure with that status, not as a denial.
+func TestMCPTransitMissingKeyKeepsNotFound(t *testing.T) {
+	var audited model.AuditEvent
+	server := &Server{
+		transitAuthorizer: func(context.Context, model.User, string, string) (bool, error) {
+			return false, errTransitKeyNotFound
+		},
+		auditRecorder: func(_ context.Context, event model.AuditEvent) error {
+			audited = event
+			return nil
+		},
+	}
+	body := `{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"transit.decrypt","arguments":{"key":"customer","ciphertext":"vault:v1:cipher"}}}`
+	response := performAuthenticatedMCP(t, server, body)
+	if !strings.Contains(response.Body.String(), `"isError":true`) || strings.Contains(response.Body.String(), "권한이 없습니다") {
+		t.Fatalf("missing key was not reported as not found: %s", response.Body.String())
+	}
+	if audited.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing key was audited as %d, want 404", audited.StatusCode)
+	}
+}

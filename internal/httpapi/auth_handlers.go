@@ -75,10 +75,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusUnauthorized, "invalid_credentials", "아이디 또는 비밀번호가 올바르지 않습니다")
 		return
 	}
-	if s.loginLimiter != nil {
-		s.loginLimiter.succeeded(rateKey)
-	}
-	security, err := s.store.SecurityConfig(r.Context())
+	security, err := s.securityConfig(r.Context())
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -86,6 +83,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !security.AllowLocalLogin && user.Role != "admin" {
 		writeError(w, r, http.StatusForbidden, "local_login_disabled", "로컬 로그인이 비활성화되었습니다")
 		return
+	}
+	// The window resets only once the login is actually granted. A correct
+	// password on an account that may not log in locally is still a refusal,
+	// and clearing the count there would let a guesser keep probing it.
+	if s.loginLimiter != nil {
+		s.loginLimiter.succeeded(rateKey)
 	}
 	ttl := time.Duration(security.SessionTimeoutMinutes) * time.Minute
 	token, session, err := s.store.CreateSession(r.Context(), user.ID, "session", "웹 로그인", user.ID, ttl)

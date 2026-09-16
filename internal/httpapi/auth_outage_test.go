@@ -160,3 +160,55 @@ func TestRejectedCredentialStillCountsAsFailedAttempt(t *testing.T) {
 		t.Fatalf("rejected credential was not counted: %#v", server.loginLimiter.failures)
 	}
 }
+
+// The failure window resets only when a login is granted. A correct password
+// on an account that may not log in locally is still a refusal: clearing the
+// count there would let a guesser who has found the password keep probing
+// the account, and a settings lookup that failed grants nothing either.
+func TestRefusedLocalLoginDoesNotResetFailureWindow(t *testing.T) {
+	for _, openBao := range []bool{false, true} {
+		for _, outage := range []bool{false, true} {
+			server := quietServer()
+			server.loginLimiter = newLoginRateLimiter()
+			server.authenticator = func(context.Context, string, string) (model.User, error) {
+				return model.User{ID: "u1", Username: "hyeon", Role: "developer"}, nil
+			}
+			server.securityLoader = func(context.Context) (store.SecurityConfig, error) {
+				if outage {
+					return store.SecurityConfig{}, driverFailure
+				}
+				return store.SecurityConfig{AllowLocalLogin: false, SessionTimeoutMinutes: 720}, nil
+			}
+			var request *http.Request
+			if openBao {
+				request = httptest.NewRequest("POST", "/v1/auth/userpass/login/hyeon", strings.NewReader(`{"password":"pw"}`))
+				request.SetPathValue("username", "hyeon")
+			} else {
+				request = httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(`{"username":"hyeon","password":"pw"}`))
+			}
+			rateKey := loginRateKey(request, "hyeon")
+			server.loginLimiter.failed(rateKey)
+			server.loginLimiter.failed(rateKey)
+
+			response := httptest.NewRecorder()
+			if openBao {
+				server.baoUserpassLogin(response, request)
+			} else {
+				server.login(response, request)
+			}
+			wantStatus := http.StatusForbidden
+			if outage {
+				wantStatus = http.StatusInternalServerError
+			}
+			if response.Code != wantStatus {
+				t.Fatalf("openbao=%t outage=%t status=%d body=%s", openBao, outage, response.Code, response.Body.String())
+			}
+			if strings.Contains(response.Body.String(), "postgres.internal") || strings.Contains(response.Body.String(), "SQLSTATE") {
+				t.Fatalf("openbao=%t driver detail leaked: %s", openBao, response.Body.String())
+			}
+			if entry := server.loginLimiter.failures[rateKey]; entry.count != 2 {
+				t.Fatalf("openbao=%t outage=%t refused login changed the failure count to %d, want 2", openBao, outage, entry.count)
+			}
+		}
+	}
+}

@@ -27,6 +27,7 @@ type Server struct {
 	webhookSlots      chan struct{}
 	sessionResolver   func(context.Context, string) (model.Session, error)
 	authenticator     func(context.Context, string, string) (model.User, error)
+	securityLoader    func(context.Context) (store.SecurityConfig, error)
 	transitAuthorizer func(context.Context, model.User, string, string) (bool, error)
 	secretAuthorizer  func(context.Context, model.User, string, string) (bool, error)
 	transitEncryptor  func(context.Context, string, string, string) (string, error)
@@ -216,6 +217,13 @@ func (s *Server) authenticate(ctx context.Context, username, rawPassword string)
 		return s.authenticator(ctx, username, rawPassword)
 	}
 	return s.store.Authenticate(ctx, username, rawPassword)
+}
+
+func (s *Server) securityConfig(ctx context.Context) (store.SecurityConfig, error) {
+	if s.securityLoader != nil {
+		return s.securityLoader(ctx)
+	}
+	return s.store.SecurityConfig(ctx)
 }
 
 func (s *Server) requireRoles(next http.Handler, roles ...string) http.Handler {
