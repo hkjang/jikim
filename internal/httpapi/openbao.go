@@ -188,10 +188,7 @@ func (s *Server) baoUserpassLogin(w http.ResponseWriter, r *http.Request) {
 		baoError(w, http.StatusBadRequest, "invalid username or password")
 		return
 	}
-	if s.loginLimiter != nil {
-		s.loginLimiter.succeeded(rateKey)
-	}
-	security, err := s.store.SecurityConfig(r.Context())
+	security, err := s.securityConfig(r.Context())
 	if err != nil {
 		baoError(w, http.StatusInternalServerError, "failed to read security settings")
 		return
@@ -199,6 +196,12 @@ func (s *Server) baoUserpassLogin(w http.ResponseWriter, r *http.Request) {
 	if !security.AllowLocalLogin && user.Role != "admin" {
 		baoError(w, http.StatusForbidden, "local login is disabled")
 		return
+	}
+	// The window resets only once the login is actually granted. A correct
+	// password on an account that may not log in locally is still a refusal,
+	// and clearing the count there would let a guesser keep probing it.
+	if s.loginLimiter != nil {
+		s.loginLimiter.succeeded(rateKey)
 	}
 	ttl := time.Duration(security.SessionTimeoutMinutes) * time.Minute
 	token, session, err := s.store.CreateSession(r.Context(), user.ID, "openbao", "userpass", user.ID, ttl)
