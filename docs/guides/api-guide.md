@@ -224,6 +224,27 @@ MCP는 REST 권한을 우회하는 관리 채널이 아닙니다. 현재 도구 
 
 도구 실행이 실패하면 `isError=true` 본문에 권한 없음·대상 없음·잘못된 요청 값처럼 호출자가 조치할 수 있는 사유만 담깁니다. 데이터베이스 장애 같은 서버 측 실패는 `도구를 실행할 수 없습니다`로 일반화되며 드라이버 오류 문자열을 노출하지 않으므로, 원인 분석은 서버 로그와 감사 기록으로 하십시오.
 
+### 키 없이 SSO로 연결하기
+
+관리자가 **MCP SSO(OAuth)** 를 켠 서버는 개인 토큰 없이도 연결됩니다. MCP 클라이언트(Claude, Cursor 등)의 원격 MCP 서버 설정에 **MCP 주소 하나**만 넣으십시오.
+
+```text
+https://jikim.example/mcp
+```
+
+클라이언트가 처음 부르면 서버가 `401`과 함께 `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp"`를 돌려주고, 클라이언트는 그 문서에서 Keycloak 주소를 읽어 브라우저에 로그인 화면을 띄웁니다. 이미 Keycloak에 로그인해 있으면 화면은 거의 보이지 않습니다. 로그인이 끝나면 클라이언트가 받은 액세스 토큰을 같은 `Authorization: Bearer` 헤더에 실어 보내며, 토큰은 짧게 살고 만료되면 클라이언트가 스스로 갱신합니다.
+
+- **먼저 웹으로 한 번 로그인해 두십시오.** SSO 토큰은 이미 등록된 활성 계정만 엽니다. 토큰으로 계정이 만들어지지 않습니다.
+- 권한은 개인 토큰으로 들어왔을 때와 같은 정책을 타되, 도구 범위는 관리자가 정한 상한(기본 `mcp:read` — 조회 도구만) 안입니다. `transit.encrypt`·`transit.decrypt`가 필요하면 관리자에게 `mcp:transit`을 요청하십시오.
+- SSO 토큰은 `/mcp`에서만 통합니다. REST·OpenBao 호환 API에는 지금처럼 개인 토큰을 쓰십시오.
+- `SSO 토큰이 이 서버를 위해 발급된 것이 아닙니다(aud=…, azp="…")`로 거부되면 그 메시지를 관리자에게 그대로 전달하십시오. 허용 대상 한 줄이면 해결됩니다.
+
+수동으로 확인하려면 Keycloak에서 받은 액세스 토큰을 `JIKIM_TOKEN` 자리에 넣어 위의 `tools/list` 예시를 그대로 보내면 됩니다. 메타데이터는 인증 없이 읽힙니다.
+
+```bash
+curl -s 'https://jikim.example/.well-known/oauth-protected-resource/mcp'
+```
+
 ## OpenBao KV v2 제한 프로파일
 
 KV v2 mount는 `secret`으로 고정되어 있으며 mount 생성·이동·tune API는 없습니다. 모든 경로는 `X-Vault-Token` 또는 지원되는 jikim 토큰으로 인증하고 로컬 policy capability를 적용합니다.

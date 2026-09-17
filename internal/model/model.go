@@ -26,6 +26,10 @@ type Session struct {
 	Name      string    `json:"name,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
+	// Scopes is set only for an MCP SSO (OAuth) principal: the ceiling the
+	// administrator chose for tokens, never wider than what a key would have.
+	// A stored session or key carries none and keeps the user's full reach.
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 type Application struct {

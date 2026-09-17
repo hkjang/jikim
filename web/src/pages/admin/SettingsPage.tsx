@@ -79,6 +79,15 @@ interface OidcSettings {
   auto_login: boolean;
 }
 
+// MCP SSO(OAuth): the "mcp" setting, stored as { oauth: { … } } so the dotted
+// names in the standard (mcp.oauth.enabled …) are the JSON path.
+interface McpOAuthSettings {
+  enabled: boolean;
+  resource: string;
+  audience: string;
+  scopes: string;
+}
+
 interface AiSettings {
   enabled: boolean;
   base_url: string;
@@ -149,6 +158,7 @@ interface AdminSettings {
   security: SecuritySettings;
   notifications: NotificationSettings;
   tracking: TrackingSettings;
+  mcp_oauth: McpOAuthSettings;
 }
 
 interface OidcTestResult {
@@ -231,6 +241,7 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
   const general = record(root.general);
   const approval = record(root.approval);
   const oidc = record(root.oidc);
+  const mcpOauth = record(record(root.mcp).oauth);
   const ai = record(root.ai);
   const security = record(root.security);
   const notification = record(root.notifications);
@@ -311,7 +322,24 @@ function normalizeSettings(response: SystemSettings | unknown): AdminSettings {
       placement: tracking.placement === 'body' ? 'body' : 'head',
       allow_insecure_http: booleanValue(tracking.allow_insecure_http),
     },
+    mcp_oauth: {
+      enabled: booleanValue(mcpOauth.enabled),
+      resource: stringValue(mcpOauth.resource),
+      audience: stringValue(mcpOauth.audience),
+      scopes: stringValue(mcpOauth.scopes, 'mcp:read'),
+    },
   };
+}
+
+// mcpOrigin is the origin of a configured resource identifier, or '' when it
+// is empty or not an absolute URL; the metadata address hangs off that origin.
+function mcpOrigin(resource: string): string {
+  try {
+    const url = new URL(resource.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : '';
+  } catch {
+    return '';
+  }
 }
 
 function settingsPayload(settings: AdminSettings, redirectUrl: string): Record<string, unknown> {
@@ -378,6 +406,14 @@ function settingsPayload(settings: AdminSettings, redirectUrl: string): Record<s
     security: settings.security,
     notifications,
     tracking,
+    mcp: {
+      oauth: {
+        enabled: settings.mcp_oauth.enabled,
+        resource: settings.mcp_oauth.resource.trim(),
+        audience: settings.mcp_oauth.audience.trim().split(/\s+/).filter(Boolean).join(' '),
+        scopes: settings.mcp_oauth.scopes.trim().split(/\s+/).filter(Boolean).join(' '),
+      },
+    },
   };
 }
 
@@ -465,6 +501,8 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
   const [webhookResult, setWebhookResult] = useState<IntegrationTestResult | null>(null);
   const [saveValidation, setSaveValidation] = useState<string | null>(null);
   const redirectUrl = `${window.location.origin}/api/v1/oidc/callback`;
+  const mcpResourceDefault = `${window.location.origin}/mcp`;
+  const mcpMetadataUrl = `${mcpOrigin(settings.mcp_oauth.resource) || window.location.origin}/.well-known/oauth-protected-resource/mcp`;
 
   // Build the patch in the event handler itself. React clears the synthetic
   // event's currentTarget as soon as the handler returns, so reading it inside
@@ -476,6 +514,7 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
   const updateAi = (patch: Partial<AiSettings>) => setSettings((current) => ({ ...current, ai: { ...current.ai, ...patch } }));
   const updateSecurity = (patch: Partial<SecuritySettings>) => setSettings((current) => ({ ...current, security: { ...current.security, ...patch } }));
   const updateNotifications = (patch: Partial<NotificationSettings>) => setSettings((current) => ({ ...current, notifications: { ...current.notifications, ...patch } }));
+  const updateMcpOauth = (patch: Partial<McpOAuthSettings>) => setSettings((current) => ({ ...current, mcp_oauth: { ...current.mcp_oauth, ...patch } }));
   const updateTracking = (patch: Partial<TrackingSettings>) => setSettings((current) => ({ ...current, tracking: { ...current.tracking, ...patch } }));
 
   const saveMutation = useMutation({
@@ -587,6 +626,11 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
     if (settings.oidc.enabled && (!settings.oidc.issuer_url.trim() || !settings.oidc.client_id.trim())) {
       setActiveTab('oidc');
       setSaveValidation('OIDC를 사용하려면 Issuer URL과 Client ID를 모두 설정하세요. 비밀 클라이언트인 경우 Client Secret도 입력하세요.');
+      return;
+    }
+    if (settings.mcp_oauth.enabled && (!settings.oidc.enabled || !settings.oidc.issuer_url.trim())) {
+      setActiveTab('oidc');
+      setSaveValidation('MCP SSO(OAuth)를 켜려면 Keycloak SSO가 켜져 있고 Issuer URL이 있어야 합니다. 토큰은 그 Issuer의 서명 키로 검증됩니다.');
       return;
     }
     if (settings.ai.enabled && (!settings.ai.base_url.trim() || !settings.ai.model.trim())) {
@@ -945,6 +989,53 @@ function AdminSettingsForm({ initialSettings, initialTab = 'general' }: { initia
                     </Stack>
                   </Alert>
                 )}
+                <Divider />
+                <SectionHeading
+                  icon={<KeyRound size={20} />}
+                  title="MCP SSO(OAuth)"
+                  description="개인 API 토큰 대신 Keycloak 액세스 토큰으로 /mcp에 들어오게 합니다. MCP 클라이언트에는 MCP 주소 하나만 주면 스스로 로그인해 토큰을 받아 옵니다. 계정은 만들지 않으며, 웹으로 한 번 로그인한 활성 계정만 통과합니다."
+                />
+                <Switch
+                  size="md"
+                  checked={settings.mcp_oauth.enabled}
+                  disabled={!settings.oidc.enabled}
+                  onChange={(event) => updateMcpOauth({ enabled: event.currentTarget.checked })}
+                  label="MCP에서 SSO 액세스 토큰 받기"
+                  description="기본값은 OFF입니다. 켜면 /.well-known/oauth-protected-resource 메타데이터가 열리고 /mcp의 401에 그 주소가 실립니다. 개인 API 토큰은 그대로 동작하며 REST·OpenBao 호환 API는 토큰을 받지 않습니다."
+                />
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+                  <TextInput
+                    type="url"
+                    label="리소스 식별자 (mcp.oauth.resource)"
+                    description="클라이언트가 실제로 접속하는 공개 주소 + /mcp. 비우면 Callback URL의 Origin으로 만듭니다. Keycloak Audience 매퍼에 이 값을 넣습니다."
+                    placeholder={mcpResourceDefault}
+                    value={settings.mcp_oauth.resource}
+                    onChange={(event) => updateMcpOauth({ resource: event.currentTarget.value })}
+                  />
+                  <TextInput
+                    label="메타데이터 주소"
+                    description="MCP 클라이언트가 인증 서버를 찾는 RFC 9728 문서입니다. 인증 없이 읽힙니다."
+                    value={mcpMetadataUrl}
+                    readOnly
+                  />
+                  <TextInput
+                    label="허용 대상 (mcp.oauth.audience)"
+                    description="공백으로 구분한 Keycloak 클라이언트 ID. 토큰의 aud 또는 azp가 이 목록에 있으면 Audience 매퍼 없이 통과합니다. 웹 로그인 클라이언트와 다른 MCP 전용 클라이언트를 적습니다."
+                    placeholder="claude-mcp cursor-mcp"
+                    value={settings.mcp_oauth.audience}
+                    onChange={(event) => updateMcpOauth({ audience: event.currentTarget.value })}
+                  />
+                  <TextInput
+                    label="범위 (mcp.oauth.scopes)"
+                    description="SSO 토큰 주체에게 주는 도구 범위. mcp:read는 조회 도구, mcp:transit는 Transit 암복호화 도구입니다. 개인 토큰은 이 제한을 받지 않습니다."
+                    placeholder="mcp:read mcp:transit"
+                    value={settings.mcp_oauth.scopes}
+                    onChange={(event) => updateMcpOauth({ scopes: event.currentTarget.value })}
+                  />
+                </SimpleGrid>
+                <Text size="sm" c="dimmed">
+                  MCP 주소: <code>{mcpResourceDefault}</code> — Keycloak에는 Standard Flow와 PKCE(S256)만 켠 공개 클라이언트를 따로 만들고, 그 클라이언트 ID를 허용 대상에 적거나 Audience 매퍼로 리소스 식별자를 액세스 토큰에 넣습니다.
+                </Text>
               </Stack>
             </Tabs.Panel>
 

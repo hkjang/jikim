@@ -60,7 +60,7 @@ func newNonce() string {
 // screen. Everything else gets the narrow policy.
 func pagePath(path string) bool {
 	if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/") || path == "/mcp" ||
-		path == "/healthz" || path == "/readyz" {
+		path == "/healthz" || path == "/readyz" || strings.HasPrefix(path, mcpOAuthMetadataPath) {
 		return false
 	}
 	return path != tracking.MomentoProxyPrefix && !strings.HasPrefix(path, tracking.MomentoProxyPrefix+"/")
