@@ -1,6 +1,6 @@
 # jikim 관리자 가이드
 
-이 문서는 jikim `v0.2.14`을 설치하고 지키는 사람을 위한 것입니다. 화면 캡처는 모두
+이 문서는 jikim `v0.2.15`을 설치하고 지키는 사람을 위한 것입니다. 화면 캡처는 모두
 `jikim:v0.2.9` 이미지를 전용 PostgreSQL과 함께 띄운 뒤 데모 데이터를 넣고 찍은 것입니다.
 
 화면을 쓰는 방법은 [사용자 가이드](USER_GUIDE.md)에 있습니다. 같은 내용을 두 번 적지 않았으니
@@ -18,7 +18,7 @@ jikim은 컨테이너 하나와 외부 PostgreSQL 하나로 동작합니다. 서
 
 | 구성 요소 | 필수 | 제공 방식 | 하는 일 |
 | --- | --- | --- | --- |
-| `jikim` 컨테이너 | 필수 | 릴리스 이미지 `jikim:v0.2.14` | Go 서버 하나가 관리 API, OpenBao 제한 호환 API, MCP, React 정적 자산을 모두 제공 |
+| `jikim` 컨테이너 | 필수 | 릴리스 이미지 `jikim:v0.2.15` | Go 서버 하나가 관리 API, OpenBao 제한 호환 API, MCP, React 정적 자산을 모두 제공 |
 | PostgreSQL | 필수 | 사내 표준 인스턴스 | 사용자·정책·시크릿 암호문·감사 로그 저장 |
 | TLS Reverse Proxy | 운영 권장 | 사내 표준 | 외부 HTTPS 종단, `Host`·`X-Forwarded-Proto` 전달 |
 | Keycloak | 선택 | 사내 표준 | OIDC SSO 로그인 |
@@ -60,9 +60,9 @@ React 정적 자산은 이미지 안의 `/app/web`에 들어 있고 Go 서버가
 GitHub Release에 올라오는 자산은 두 개입니다.
 
 ```bash
-sha256sum --check jikim-v0.2.14.tar.gz.sha256
-docker load --input jikim-v0.2.14.tar.gz
-docker image inspect jikim:v0.2.14
+sha256sum --check jikim-v0.2.15.tar.gz.sha256
+docker load --input jikim-v0.2.15.tar.gz
+docker image inspect jikim:v0.2.15
 ```
 
 체크섬 확인 없이 적재하지 마십시오. 반입 경로에서 파일이 바뀌었는지 확인할 유일한 수단입니다.
@@ -116,7 +116,7 @@ curl --fail http://127.0.0.1:8080/v1/sys/health
 - `GET /healthz`는 프로세스가 살아 있는지만 답합니다.
 - `GET /readyz`는 PostgreSQL에 2초 제한으로 ping 한 뒤 답합니다. 저장소에 닿지 못하면 `503`과
   `not_ready`, `데이터베이스 연결을 확인할 수 없습니다`를 돌려줍니다.
-- `GET /v1/sys/health`는 OpenBao 클라이언트와 Load Balancer가 쓰는 경로입니다. `v0.2.14`은
+- `GET /v1/sys/health`는 OpenBao 클라이언트와 Load Balancer가 쓰는 경로입니다. `v0.2.15`은
   저장소 미도달을 seal과 같은 운영 상태로 보아 `"sealed": true`와 `503`을 반환합니다.
   probe 설정을 이식할 때는 `activecode`·`sealedcode` 쿼리로 상태 코드를 바꿀 수 있고,
   100\~599 정수가 아니면 조용히 무시하지 않고 `400`으로 거부합니다.
@@ -273,8 +273,8 @@ jikim의 로그아웃은 Keycloak RP-initiated logout까지 이어지므로 화�
 | `mcp.oauth.enabled` | `false` | 스위치. Keycloak OIDC가 켜져 있고 Issuer URL이 있어야 저장됩니다(토큰은 그 Issuer의 JWKS로 검증). 저장 뒤 OIDC를 끄면 조용히 꺼진 것처럼 동작하고 토큰이 들어올 때 로그에 이유를 남깁니다 |
 | `mcp.oauth.resource` | 빈 값 | 리소스 식별자(RFC 8707). 클라이언트가 실제로 접속하는 **공개 주소 + `/mcp`**. 비우면 OIDC Callback URL(`oidc.redirect_url`)의 Origin + `/mcp`로 만들고, 그것도 없을 때만 요청의 `Host`를 씁니다 |
 | `mcp.oauth.audience` | 빈 값 | 공백 구분 허용 대상. 토큰의 `aud` **또는 `azp`**가 이 목록에 있으면 통과합니다. Audience 매퍼 없이 쓰는 호환 경로 |
-| `mcp.oauth.scopes` | `mcp:read` | 공백 구분. SSO 토큰 주체에게 주는 도구 범위. `mcp:read`=조회 도구(`dashboard.get`·`secrets.list`·`secrets.metadata`·`policies.list`·`audit.search`·`access.check`), `mcp:transit`=`transit.encrypt`·`transit.decrypt` |
-| (재사용) `oidc.issuer_url`·`oidc.client_id`·`oidc.redirect_url` | 3.3의 값 | 새로 만들지 않습니다 |
+| `mcp.oauth.scopes` | `mcp:read` | 공백 구분. SSO 토큰 주체에게 주는 도구 범위. `mcp:read`=조회 도구(`dashboard.get`, `secrets.list`, `secrets.metadata`, `policies.list`, `audit.search`, `access.check`), `mcp:transit`=`transit.encrypt`, `transit.decrypt` |
+| (재사용) `oidc.issuer_url`, `oidc.client_id`, `oidc.redirect_url` | 3.3의 값 | 새로 만들지 않습니다 |
 
 **토큰을 어떻게 믿는가.** 서명(Keycloak JWKS, RS/ES/PS 계열만 — `HS*`·`none` 거부), `iss`(=
 Issuer URL), `exp`·`nbf`, `typ`(`ID`면 거부 — ID 토큰은 로그인 증거지 API 자격이 아닙니다),
@@ -346,7 +346,7 @@ curl -si -X POST https://vault.corp.example/mcp -H 'Content-Type: application/js
 ### 3.4 승인 워크플로
 
 기본값은 비활성입니다. 꺼져 있으면 생성·변경 작업에 검토 단계를 만들지 않고 즉시 반영합니다.
-`v0.2.14`에서 설정할 수 있는 것은 워크플로 사용 여부, 적용 작업(시크릿 생성·변경, 시크릿 폐기),
+`v0.2.15`에서 설정할 수 있는 것은 워크플로 사용 여부, 적용 작업(시크릿 생성·변경, 시크릿 폐기),
 검토 역할(`manager` 또는 `admin`)입니다.
 
 승인은 1인 검토이며 요청자 본인 승인은 항상 금지됩니다. 환경·위험 등급별 조건, 다단계 승인,
@@ -595,7 +595,7 @@ docker compose logs --follow jikim
 ```text
 {"level":"INFO","msg":"bootstrap 관리자 준비","username":"...","created":true}
 {"level":"INFO","msg":"웹 UI 활성화","directory":"/app/web"}
-{"level":"INFO","msg":"jikim 시작","address":":8080","version":"v0.2.14"}
+{"level":"INFO","msg":"jikim 시작","address":":8080","version":"v0.2.15"}
 ```
 
 종료 신호를 받으면 `종료 신호 수신`을 남기고 최대 20초 동안 진행 중인 요청을 마무리합니다.
@@ -661,7 +661,7 @@ docker compose logs --follow jikim
 
 | 증상 | 확인할 곳 | 조치 |
 | --- | --- | --- |
-| `/readyz`가 `503` + `데이터베이스 연결을 확인할 수 없습니다` | PostgreSQL 도달성, DSN, TLS 모드, 계정 권한 | 저장소를 복구합니다. `v0.2.14`은 DB 장애를 자격증명 거부로 접지 않고 `500`으로 구분해 보고합니다. |
+| `/readyz`가 `503` + `데이터베이스 연결을 확인할 수 없습니다` | PostgreSQL 도달성, DSN, TLS 모드, 계정 권한 | 저장소를 복구합니다. `v0.2.15`은 DB 장애를 자격증명 거부로 접지 않고 `500`으로 구분해 보고합니다. |
 | `아이디 또는 비밀번호가 올바르지 않습니다` | 사용자 관리 화면의 계정 상태 | 계정·비밀번호를 확인합니다. DB 장애일 때는 이 문구가 아니라 `500`이 나옵니다. |
 | `사용자 계정이 비활성화되었습니다` | 사용자 관리 화면 | 계정을 활성화합니다. |
 | `로컬 로그인이 비활성화되었습니다` | 보안 탭의 **로컬 로그인 허용** | OIDC로 들어가거나, 그것도 막혔으면 설정 값을 되돌려야 합니다. |

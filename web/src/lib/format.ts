@@ -1,4 +1,4 @@
-export const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'v0.2.14';
+export const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'v0.2.15';
 
 export function formatDate(value?: string) {
   if (!value) return '—';
