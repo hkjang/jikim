@@ -26,6 +26,7 @@ var allowedSettingKeys = map[string]bool{
 	"notification_webhook":        true,
 	"notification_webhook_secret": true,
 	"tracking":                    true,
+	"mcp":                         true,
 }
 
 func SensitiveSetting(key string) bool {
@@ -290,6 +291,10 @@ func validateSetting(key string, value map[string]any) error {
 		}
 		if err := tracking.ReadConfig(value).Validate(); err != nil {
 			return fmt.Errorf("%w: 방문 추적: %v", ErrInvalid, err)
+		}
+	case "mcp":
+		if err := validateMCPSetting(value); err != nil {
+			return err
 		}
 	case "service":
 		if err := optionalString(value, "service_name"); err != nil {

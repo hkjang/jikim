@@ -21,6 +21,7 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 		"mcp": map[string]any{
 			"endpoint": "/mcp", "transport": "streamable-http-stateless",
 			"protocol_versions": []string{"2025-11-25", "2025-06-18"},
+			"oauth":             map[string]any{"protected_resource_metadata": mcpOAuthMetadataPath + "/mcp", "default": "off"},
 			"tools": []string{"dashboard.get", "secrets.list", "secrets.metadata", "policies.list",
 				"audit.search", "access.check", "transit.encrypt", "transit.decrypt"},
 		},

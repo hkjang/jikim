@@ -575,6 +575,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		"security":      map[string]any{},
 		"notifications": map[string]any{"enabled": false, "supported_events": store.SupportedWebhookEvents()},
 		"tracking":      map[string]any{"enabled": false},
+		"mcp":           map[string]any{"oauth": map[string]any{"enabled": false, "scopes": store.MCPScopeRead}},
 	}
 	for _, item := range items {
 		switch item.Key {
@@ -582,7 +583,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 			result["general"] = item.Value
 		case "workflow":
 			result["approval"] = item.Value
-		case "oidc", "ai", "security", "notifications", "tracking":
+		case "oidc", "ai", "security", "notifications", "tracking", "mcp":
 			result[item.Key] = item.Value
 		case "oidc_client_secret":
 			value, _ := result["oidc"].(map[string]any)
@@ -740,6 +741,15 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if enabled && authType != "none" && !configured {
 			writeError(w, r, http.StatusBadRequest, "ai_api_key_required", "선택한 AI 인증 방식에는 API Key가 필요합니다")
+			return
+		}
+	}
+	if mcp, ok := input["mcp"]; ok && store.ReadMCPOAuth(mcp).Enabled {
+		// Tokens are verified against the OIDC issuer, so a switch without
+		// one would only ever be dormant; refuse it here where the operator
+		// can see why instead of letting it sit on silently.
+		if err := s.requireOIDCForMCPOAuth(r.Context(), input["oidc"]); err != nil {
+			writeError(w, r, http.StatusBadRequest, "mcp_oauth_requires_oidc", err.Error())
 			return
 		}
 	}

@@ -134,3 +134,39 @@ func TestTrackingSettingsValidation(t *testing.T) {
 		}
 	}
 }
+
+// MCP SSO settings: a mistyped switch, a scope outside the vocabulary, or a
+// resource that is not an absolute URL would each read as a setting that
+// silently does not apply, so they are refused instead.
+func TestMCPOAuthSettingsValidation(t *testing.T) {
+	if err := ValidateSetting("mcp", map[string]any{"oauth": map[string]any{"enabled": "true"}}); err == nil {
+		t.Fatal("string enabled was accepted")
+	}
+	if err := ValidateSetting("mcp", map[string]any{"oauth": "on"}); err == nil {
+		t.Fatal("non-object oauth was accepted")
+	}
+	if err := ValidateSetting("mcp", map[string]any{"oauth": map[string]any{"scopes": "mcp:read mcp:admin"}}); err == nil || !strings.Contains(err.Error(), "mcp:admin") {
+		t.Fatalf("unknown scope was accepted or not named: %v", err)
+	}
+	for _, resource := range []string{"jikim.example/mcp", "https://user@jikim.example/mcp", "https://jikim.example/mcp?x=1"} {
+		if err := ValidateSetting("mcp", map[string]any{"oauth": map[string]any{"resource": resource}}); err == nil {
+			t.Fatalf("resource %q was accepted", resource)
+		}
+	}
+	if err := ValidateSetting("mcp", map[string]any{"oauth": map[string]any{
+		"enabled": true, "resource": "https://jikim.example/mcp", "audience": "claude-mcp cursor", "scopes": "mcp:read mcp:transit",
+	}}); err != nil {
+		t.Fatalf("valid MCP SSO settings rejected: %v", err)
+	}
+
+	cfg := ReadMCPOAuth(map[string]any{"oauth": map[string]any{"enabled": true, "audience": " claude-mcp  cursor ", "scopes": "mcp:transit mcp:unknown"}})
+	if !cfg.Enabled || len(cfg.Audiences) != 2 || len(cfg.Scopes) != 1 || cfg.Scopes[0] != MCPScopeTransit {
+		t.Fatalf("ReadMCPOAuth=%+v", cfg)
+	}
+	if def := ReadMCPOAuth(nil); def.Enabled || len(def.Scopes) != 1 || def.Scopes[0] != MCPScopeRead || def.Active() {
+		t.Fatalf("defaults=%+v", def)
+	}
+	if reason := (MCPOAuthConfig{Enabled: true, OIDCEnabled: true}).InactiveReason(); !strings.Contains(reason, "issuer") {
+		t.Fatalf("reason=%q", reason)
+	}
+}

@@ -37,6 +37,9 @@ type Server struct {
 	oidcStateOpener   func(string, any) error
 	trackingLoader    func(context.Context) (tracking.Config, error)
 	violations        *tracking.Recorder
+	mcpOAuthLoader    func(context.Context) (store.MCPOAuthConfig, error)
+	oidcUserFinder    func(context.Context, string, string) (model.User, error)
+	oauthProviders    oauthProviders
 }
 
 func New(st *store.Store, logger *slog.Logger) http.Handler {
@@ -143,7 +146,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc(tracking.MomentoProxyPrefix+"/", s.momentoProxy)
 
 	mux.HandleFunc("GET /mcp", s.mcpGET)
-	mux.Handle("POST /mcp", mcpOriginGuard(s.withAuth(http.HandlerFunc(s.mcp))))
+	mux.Handle("POST /mcp", mcpOriginGuard(s.withMCPAuth(http.HandlerFunc(s.mcp))))
+	mux.HandleFunc("GET "+mcpOAuthMetadataPath, s.protectedResourceMetadata)
+	mux.HandleFunc("GET "+mcpOAuthMetadataPath+"/mcp", s.protectedResourceMetadata)
 	s.openBaoRoutes(mux)
 	mux.HandleFunc("/", s.serveFrontend)
 }

@@ -165,6 +165,13 @@ func (s *Server) mcpToolCall(w http.ResponseWriter, r *http.Request, id json.Raw
 	session, _ := sessionFrom(r)
 	var result any
 	var err error
+	// An SSO principal is held to the administrator's scope ceiling before any
+	// policy runs; a key carries no scope and is never narrowed here.
+	if !mcpScopeAllows(session, params.Name) {
+		_, message := mcpToolFailure(scopeForbidden(mcpToolScope(params.Name)))
+		mcpResult(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": message}}, "isError": true})
+		return
+	}
 	switch params.Name {
 	case "dashboard.get":
 		result, err = s.roleScopedDashboard(r.Context(), session)
@@ -599,6 +606,9 @@ type mcpSentinel struct {
 
 func (e mcpSentinel) Error() string { return e.message }
 func storeForbidden() error         { return mcpSentinel{http.StatusForbidden, "권한이 없습니다"} }
+func scopeForbidden(scope string) error {
+	return mcpSentinel{http.StatusForbidden, "SSO 토큰의 범위로는 이 도구를 쓸 수 없습니다(필요한 범위: " + scope + "). 관리자가 MCP SSO 설정의 범위에 더해야 합니다"}
+}
 func storeNotFound() error {
 	return mcpSentinel{http.StatusNotFound, "대상을 찾을 수 없습니다"}
 }
