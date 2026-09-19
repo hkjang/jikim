@@ -101,6 +101,7 @@ E2E_BASE_URL="http://127.0.0.1:${PORT}" \
 E2E_ADMIN="${ADMIN_USER}" \
 E2E_ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
 E2E_VERSION="${VERSION}" \
+PLAYWRIGHT_REPORTER="${PLAYWRIGHT_REPORTER:-dot}" \
 npm exec -- playwright test
 
 printf '브라우저 E2E 완료: %s\n' "${IMAGE}"
