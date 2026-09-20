@@ -3,14 +3,16 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	loginFailureLimit  = 5
-	loginFailureWindow = 5 * time.Minute
+	loginFailureLimit    = 5
+	loginFailureWindow   = 5 * time.Minute
+	loginFailureCapacity = 10_000
 )
 
 type loginFailureEntry struct {
@@ -24,6 +26,7 @@ type loginRateLimiter struct {
 	now      func() time.Time
 	limit    int
 	window   time.Duration
+	capacity int
 }
 
 func newLoginRateLimiter() *loginRateLimiter {
@@ -32,6 +35,7 @@ func newLoginRateLimiter() *loginRateLimiter {
 		now:      time.Now,
 		limit:    loginFailureLimit,
 		window:   loginFailureWindow,
+		capacity: loginFailureCapacity,
 	}
 }
 
@@ -63,20 +67,48 @@ func (l *loginRateLimiter) failed(key string) {
 	}
 	entry.count++
 	l.failures[key] = entry
-	if len(l.failures) > 10_000 {
-		for existingKey, existing := range l.failures {
-			if !existing.expiresAt.After(now) {
-				delete(l.failures, existingKey)
-			}
+	if len(l.failures) > l.capacity {
+		l.evict(key, now)
+	}
+}
+
+// evict brings the table back under capacity without giving up a lockout it
+// does not have to. Expired entries go first, then keys that have not reached
+// the limit yet; only when the table holds nothing but live lockouts do those
+// go, earliest expiry first. Picking victims by map order would let a client
+// that locked one account flood failures against other usernames until the
+// lockout it wanted gone was evicted. The key that just failed always stays.
+func (l *loginRateLimiter) evict(keep string, now time.Time) {
+	for existingKey, existing := range l.failures {
+		if !existing.expiresAt.After(now) {
+			delete(l.failures, existingKey)
 		}
-		for existingKey := range l.failures {
-			if len(l.failures) <= 10_000 {
-				break
-			}
-			if existingKey != key {
-				delete(l.failures, existingKey)
-			}
+	}
+	for existingKey, existing := range l.failures {
+		if len(l.failures) <= l.capacity {
+			return
 		}
+		if existingKey != keep && existing.count < l.limit {
+			delete(l.failures, existingKey)
+		}
+	}
+	if len(l.failures) <= l.capacity {
+		return
+	}
+	locked := make([]string, 0, len(l.failures))
+	for existingKey := range l.failures {
+		if existingKey != keep {
+			locked = append(locked, existingKey)
+		}
+	}
+	sort.Slice(locked, func(i, j int) bool {
+		return l.failures[locked[i]].expiresAt.Before(l.failures[locked[j]].expiresAt)
+	})
+	for _, existingKey := range locked {
+		if len(l.failures) <= l.capacity {
+			return
+		}
+		delete(l.failures, existingKey)
 	}
 }
 
