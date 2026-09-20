@@ -21,22 +21,28 @@ function unwrap<T>(body: T | { data: T }): T {
   return body as T;
 }
 
+async function readBody(response: Response) {
+  const contentType = response.headers.get('content-type') || '';
+  return contentType.includes('application/json') ? response.json() : response.text();
+}
+
+async function throwResponseError(response: Response): Promise<never> {
+  const body = await readBody(response);
+  const message = typeof body === 'object'
+    ? body?.message || body?.error?.message || (typeof body?.error === 'string' ? body.error : '') || body?.errors?.join?.(', ') || '요청을 처리하지 못했습니다.'
+    : body || '요청을 처리하지 못했습니다.';
+  if (response.status === 401) window.dispatchEvent(new CustomEvent('jikim:unauthorized'));
+  throw new ApiError(message, response.status, body);
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set('Accept', 'application/json');
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
 
   const response = await fetch(path.startsWith('/api/') ? path : `${API_BASE}${path}`, { ...options, credentials: 'same-origin', headers });
-  const contentType = response.headers.get('content-type') || '';
-  const body = contentType.includes('application/json') ? await response.json() : await response.text();
-
-  if (!response.ok) {
-    const message = typeof body === 'object'
-      ? body?.message || body?.error?.message || (typeof body?.error === 'string' ? body.error : '') || body?.errors?.join?.(', ') || '요청을 처리하지 못했습니다.'
-      : body || '요청을 처리하지 못했습니다.';
-    if (response.status === 401) window.dispatchEvent(new CustomEvent('jikim:unauthorized'));
-    throw new ApiError(message, response.status, body);
-  }
+  if (!response.ok) await throwResponseError(response);
+  const body = await readBody(response);
   return unwrap<T>(body);
 }
 
@@ -60,10 +66,8 @@ export async function streamChat(
 ) {
   const headers = new Headers({ Accept: 'text/event-stream', 'Content-Type': 'application/json' });
   const response = await fetch(`${API_BASE}/ai/chat`, { method: 'POST', credentials: 'same-origin', headers, body: JSON.stringify(payload), signal });
-  if (!response.ok || !response.body) {
-    const detail = await response.text();
-    throw new ApiError(detail || 'AI 스트리밍 연결을 시작할 수 없습니다.', response.status);
-  }
+  if (!response.ok) await throwResponseError(response);
+  if (!response.body) throw new ApiError('AI 스트리밍 연결을 시작할 수 없습니다.', response.status);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
