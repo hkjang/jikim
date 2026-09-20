@@ -9,6 +9,16 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.16] - 2026-09-20
+
+### 수정
+
+- 로그인 실패 표가 상한(10,000개)을 넘으면 잠긴 계정의 잠금이 밀려나던 오류 수정. `loginRateLimiter`는 초과 시 만료 항목을 지운 뒤에도 남으면 Go map 순회 순서대로 아무 항목이나 지웠고 잠긴(5회 도달) 항목도 대상이어서, 표적 계정을 잠근 같은 주소가 다른 username으로 실패를 흘리면 잠금이 지워져 5번이 다시 열렸습니다. 축출을 ① 만료 항목 → ② 아직 잠기지 않은 항목(방금 실패한 key 제외) → ③ 잠긴 항목만 남으면 만료 시각이 이른 순으로 결정적으로 지우게 바꿨습니다. 상한은 `loginFailureCapacity` 상수와 `capacity` 필드로 빼서 테스트가 낮출 수 있게 했고, 기본값 10,000개·5회/5분·`Retry-After`·auth 핸들러의 호출 위치는 그대로입니다
+
+### 문서
+
+- 문서 프로파일과 두 가이드 PDF 표지를 v0.2.16으로 갱신했습니다. 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+
 ## [0.2.15] - 2026-09-17
 
 ### 추가
@@ -266,7 +276,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.15...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.16...HEAD
+[0.2.16]: https://github.com/hkjang/jikim/releases/tag/v0.2.16
 [0.2.15]: https://github.com/hkjang/jikim/releases/tag/v0.2.15
 [0.2.14]: https://github.com/hkjang/jikim/releases/tag/v0.2.14
 [0.2.13]: https://github.com/hkjang/jikim/releases/tag/v0.2.13
