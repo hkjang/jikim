@@ -77,13 +77,15 @@ export async function streamChat(
       if (!line.startsWith('data:')) continue;
       const raw = line.slice(5).trim();
       if (!raw || raw === '[DONE]') continue;
+      let event;
       try {
-        const event = JSON.parse(raw);
-        const content = event.content ?? event.delta ?? event.choices?.[0]?.delta?.content ?? '';
-        if (content) onChunk(content);
+        event = JSON.parse(raw);
       } catch {
         onChunk(raw);
+        continue;
       }
+      const content = event.content ?? event.delta ?? event.choices?.[0]?.delta?.content ?? '';
+      if (content) onChunk(content);
     }
   }
 }
