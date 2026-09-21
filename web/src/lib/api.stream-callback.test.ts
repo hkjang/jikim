@@ -79,14 +79,23 @@ describe('streamChat 실제 HTTP 스트림 콜백', () => {
     expect(chunks).toEqual(['content', 'delta', 'choices', 'plain text', '{invalid json']);
   });
 
-  it.each([Error, SyntaxError])('원문 폴백 콜백의 %s도 그대로 전파한다', async (ErrorType) => {
-    await serveEvents(['plain text', JSON.stringify({ content: 'later' })]);
-    const sentinel = new ErrorType('fallback consumer failed');
+  it('JSON null을 원문으로 전달하고 뒤 정상 이벤트도 전달한다', async () => {
+    await serveEvents(['null', JSON.stringify({ content: 'later' })]);
     const chunks: string[] = [];
-    await expect(streamChat(payload, (chunk) => {
-      chunks.push(chunk);
-      if (chunks.length === 1) throw sentinel;
-    })).rejects.toBe(sentinel);
-    expect(chunks).toEqual(['plain text']);
+    await streamChat(payload, (chunk) => { chunks.push(chunk); });
+    expect(chunks).toEqual(['null', 'later']);
+  });
+
+  describe.each(['plain text', 'null'])('%s 원문 폴백', (raw) => {
+    it.each([Error, SyntaxError])('원문 폴백 콜백의 %s도 그대로 전파한다', async (ErrorType) => {
+      await serveEvents([raw, JSON.stringify({ content: 'later' })]);
+      const sentinel = new ErrorType('fallback consumer failed');
+      const chunks: string[] = [];
+      await expect(streamChat(payload, (chunk) => {
+        chunks.push(chunk);
+        if (chunks.length === 1) throw sentinel;
+      })).rejects.toBe(sentinel);
+      expect(chunks).toEqual([raw]);
+    });
   });
 });

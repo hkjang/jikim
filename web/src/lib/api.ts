@@ -84,6 +84,10 @@ export async function streamChat(
         onChunk(raw);
         continue;
       }
+      if (event === null) {
+        onChunk(raw);
+        continue;
+      }
       const content = event.content ?? event.delta ?? event.choices?.[0]?.delta?.content ?? '';
       if (content) onChunk(content);
     }
