@@ -9,6 +9,16 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.18] - 2026-09-22
+
+### 수정
+
+- Vite 개발 서버에서 API 탐색기의 `/api/openapi.json` 링크가 브라우저 요청에는 HTML을, JSON 요청에는 404를 반환하던 오류 수정. 해당 경로를 기존 Go 백엔드 8080으로 전달하도록 프록시를 추가했습니다. 실제 Vite와 native fetch 회귀 테스트 9개로 확인했으며, Node 환경에서도 실행할 수 있도록 공통 테스트 setup의 브라우저 초기화만 조건부로 실행합니다
+
+### 문서
+
+- CONTRIBUTING에 Go 백엔드와 Vite 개발 서버의 실행 및 OpenAPI 확인 방법을 추가했습니다. 문서 프로파일과 두 가이드 PDF 표지를 v0.2.18로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+
 ## [0.2.17] - 2026-09-21
 
 ### 수정
@@ -286,7 +296,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.17...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.18...HEAD
+[0.2.18]: https://github.com/hkjang/jikim/releases/tag/v0.2.18
 [0.2.17]: https://github.com/hkjang/jikim/releases/tag/v0.2.17
 [0.2.16]: https://github.com/hkjang/jikim/releases/tag/v0.2.16
 [0.2.15]: https://github.com/hkjang/jikim/releases/tag/v0.2.15
