@@ -36,6 +36,14 @@ export ENCRYPTION_KEY='0123456789abcdef0123456789abcdef'
 go run ./cmd/server
 ```
 
+Go 백엔드가 `http://127.0.0.1:8080`에서 실행 중인 상태에서 다른 터미널로 관리 화면 개발 서버를 시작합니다.
+
+```bash
+npm --prefix web run dev
+```
+
+`http://localhost:5173/api-explorer`에서 API 탐색기를 열 수 있습니다. 개발 서버는 API 요청을 Go 백엔드로 전달하며, **OpenAPI 3.1** 버튼의 문서는 `http://localhost:5173/api/openapi.json`에서도 확인할 수 있습니다.
+
 ## 검증
 
 빠른 전체 검증:
