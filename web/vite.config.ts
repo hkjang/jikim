@@ -10,6 +10,8 @@ export default defineConfig({
       '/api/v1': 'http://127.0.0.1:8080',
       '/v1': 'http://127.0.0.1:8080',
       '/mcp': 'http://127.0.0.1:8080',
+      // MCP SSO(OAuth) 메타데이터. /.well-known 전체가 아니라 이 접두사만 넘긴다.
+      '/.well-known/oauth-protected-resource': 'http://127.0.0.1:8080',
       '/healthz': 'http://127.0.0.1:8080',
       '/readyz': 'http://127.0.0.1:8080',
     },
