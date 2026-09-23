@@ -9,6 +9,17 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.19] - 2026-09-24
+
+### 수정
+
+- Vite 개발 서버에서 MCP SSO(OAuth) 메타데이터 주소가 404를 반환하던 오류 수정. Go 서버는 `/.well-known/oauth-protected-resource`와 `/.well-known/oauth-protected-resource/mcp`를 서빙하지만 개발 서버 프록시 목록에 없어, 관리 화면이 안내하는 메타데이터 주소와 `/mcp` 401 응답의 `resource_metadata` 주소가 개발 환경에서 백엔드에 닿지 못했습니다. `/.well-known` 전체가 아니라 해당 접두사만 좁게 전달하도록 프록시 항목 하나를 추가했으며, 실제 운영 `vite.config.ts`를 로드해 진짜 Vite 개발 서버와 native fetch로 도는 회귀 테스트 6개로 수정 전 404를 확인한 뒤 통과시켰습니다. 메타데이터와 `/mcp`가 같은 Host로 백엔드에 도착하는지도 함께 고정했습니다
+
+### 문서
+
+- CONTRIBUTING 개발 안내에 MCP SSO(OAuth)를 시험할 때 쓰는 메타데이터 주소를 추가했습니다. 문서 프로파일을 v0.2.19로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.19로 갱신되어 있습니다
+
 ## [0.2.18] - 2026-09-22
 
 ### 수정
@@ -296,7 +307,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.18...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.19...HEAD
+[0.2.19]: https://github.com/hkjang/jikim/releases/tag/v0.2.19
 [0.2.18]: https://github.com/hkjang/jikim/releases/tag/v0.2.18
 [0.2.17]: https://github.com/hkjang/jikim/releases/tag/v0.2.17
 [0.2.16]: https://github.com/hkjang/jikim/releases/tag/v0.2.16
