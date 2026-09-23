@@ -42,7 +42,7 @@ Go 백엔드가 `http://127.0.0.1:8080`에서 실행 중인 상태에서 다른 
 npm --prefix web run dev
 ```
 
-`http://localhost:5173/api-explorer`에서 API 탐색기를 열 수 있습니다. 개발 서버는 API 요청을 Go 백엔드로 전달하며, **OpenAPI 3.1** 버튼의 문서는 `http://localhost:5173/api/openapi.json`에서도 확인할 수 있습니다.
+`http://localhost:5173/api-explorer`에서 API 탐색기를 열 수 있습니다. 개발 서버는 API 요청을 Go 백엔드로 전달하며, **OpenAPI 3.1** 버튼의 문서는 `http://localhost:5173/api/openapi.json`에서도 확인할 수 있습니다. MCP SSO(OAuth)를 켜고 시험할 때 쓰는 `http://localhost:5173/.well-known/oauth-protected-resource/mcp` 메타데이터도 같은 방식으로 전달됩니다.
 
 ## 검증
 

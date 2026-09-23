@@ -12,6 +12,7 @@ import { createServer as createViteServer, loadConfigFromFile, type ViteDevServe
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const received: { method?: string; url?: string; accept?: string }[] = [];
+const receivedHosts: (string | undefined)[] = [];
 let upstream: Server | undefined;
 let vite: ViteDevServer | undefined;
 let cacheDir: string | undefined;
@@ -23,6 +24,7 @@ beforeAll(async () => {
     request.resume();
     const arrival = { method: request.method, url: request.url, accept: request.headers.accept };
     received.push(arrival);
+    receivedHosts.push(request.headers.host);
     response.writeHead(200, { 'Content-Type': 'application/json' });
     // Transport fixture only; the Go tests verify the actual OpenAPI document.
     response.end(JSON.stringify({ upstream: true, ...arrival }));
@@ -95,6 +97,39 @@ describe('Vite development proxy over HTTP', () => {
       expect(received.slice(start)).toEqual([arrival]);
     },
   );
+
+  it.each([
+    ['/.well-known/oauth-protected-resource', 'text/html'],
+    ['/.well-known/oauth-protected-resource', 'application/json'],
+    ['/.well-known/oauth-protected-resource/mcp', 'text/html'],
+    ['/.well-known/oauth-protected-resource/mcp', 'application/json'],
+  ])('forwards MCP OAuth metadata %s with Accept: %s', async (path, accept) => {
+    const start = received.length;
+    const response = await fetch(origin + path, { headers: { Accept: accept } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    const arrival = { method: 'GET', url: path, accept };
+    expect(received.slice(start)).toEqual([arrival]);
+    expect(await response.json()).toEqual({ upstream: true, ...arrival });
+  });
+
+  // mcpResource()는 설정이 비면 Host로 리소스 식별자를 만든다. 메타데이터와 /mcp가
+  // 같은 Host로 도착해야 광고한 식별자와 401이 가리키는 주소가 어긋나지 않는다.
+  it('delivers metadata and /mcp to the backend under the same Host', async () => {
+    const start = received.length;
+    for (const path of ['/.well-known/oauth-protected-resource/mcp', '/mcp']) {
+      expect((await fetch(origin + path)).status).toBe(200);
+    }
+    const [metadataHost, mcpHost] = receivedHosts.slice(start);
+    expect(metadataHost).toBeDefined();
+    expect(metadataHost).toBe(mcpHost);
+  });
+
+  it('leaves other /.well-known probes on the SPA server', async () => {
+    const start = received.length;
+    await fetch(`${origin}/.well-known/appspecific/com.chrome.devtools.json`);
+    expect(received.slice(start)).toEqual([]);
+  });
 
   it.each(['/api-explorer', '/api/unrelated'])('keeps %s on the SPA server', async (path) => {
     const start = received.length;
