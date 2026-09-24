@@ -42,12 +42,8 @@ compose-check: ## 네 개의 필수 변수로 Compose 구성을 검증합니다.
 	ENCRYPTION_KEY='0123456789abcdef0123456789abcdef' \
 	docker compose config --quiet
 
-docker: ## $(IMAGE) 이미지를 로컬에서 빌드합니다.
-	docker build \
-		--build-arg VERSION="$(VERSION)" \
-		--build-arg COMMIT="$(COMMIT)" \
-		--build-arg BUILD_DATE="$(BUILD_DATE)" \
-		--tag "$(IMAGE)" .
+docker: ## $(IMAGE) 이미지를 로컬에서 빌드합니다(레이어 로그는 실패했을 때만 표시).
+	./scripts/build-image.sh "$(IMAGE)"
 
 smoke: ## 외부 통신이 차단된 Docker 네트워크에서 스모크 테스트합니다.
 	./scripts/smoke-offline.sh "$(IMAGE)"

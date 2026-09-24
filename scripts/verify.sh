@@ -42,10 +42,12 @@ fi
 go test "${GO_PACKAGES[@]}"
 go vet "${GO_PACKAGES[@]}"
 
-npm --prefix web ci --no-audit --no-fund
-npm --prefix web test -- --maxWorkers=1
+# 성공 경로의 진행 출력(설치 목록·테스트 이름·산출물 목록)은 줄이고, 실패 상세는
+# 각 도구가 그대로 내도록 둔다. 실패까지 숨기는 >/dev/null 리다이렉트는 쓰지 않는다.
+npm --prefix web ci --no-audit --no-fund --loglevel=error
+npm --prefix web test -- --maxWorkers=1 --reporter=dot
 npm --prefix web run lint
-VITE_APP_VERSION="${VERSION}" npm --prefix web run build
+VITE_APP_VERSION="${VERSION}" npm --prefix web run build -- --logLevel=warn
 test -f web/dist/index.html
 node scripts/verify-docs.mjs
 
@@ -56,13 +58,7 @@ ENCRYPTION_KEY='0123456789abcdef0123456789abcdef' \
 docker compose config --quiet
 
 if [[ "${RUN_DOCKER}" == true ]]; then
-  readonly BUILD_COMMIT="$(git rev-parse HEAD 2>/dev/null || printf unknown)"
-  readonly BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  docker build \
-    --build-arg "VERSION=${VERSION}" \
-    --build-arg "COMMIT=${BUILD_COMMIT}" \
-    --build-arg "BUILD_DATE=${BUILD_DATE}" \
-    --tag "jikim:${VERSION}" .
+  "${SCRIPT_DIR}/build-image.sh" "jikim:${VERSION}"
 fi
 
 if [[ "${RUN_SMOKE}" == true ]]; then

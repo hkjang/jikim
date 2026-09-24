@@ -121,6 +121,8 @@ docker pull postgres:17-alpine  # 스모크 테스트용 이미지를 연결망�
 make e2e                        # 실제 이미지의 모든 화면·새로 고침 브라우저 검증
 ```
 
+검증 스크립트는 성공하면 단계별 요약만 남기고, 실패한 도구의 출력은 그대로 표시합니다(Docker 빌드 레이어 로그는 실패했을 때만 표시). Playwright 콘솔 reporter는 `PLAYWRIGHT_REPORTER`(기본 `dot`, 예: `list`)로 바꿀 수 있습니다.
+
 실제 릴리스 전 로컬 계약:
 
 ```bash
