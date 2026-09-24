@@ -9,6 +9,22 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.20] - 2026-09-24
+
+### 수정
+
+- 새로 clone한 저장소에서 `make docker`가 실패하던 오류 수정. 이미지 빌드를 옮겨 담은 `scripts/build-image.sh`가 실행 권한 없이 커밋되어 있어 `Permission denied`로 멈췄습니다. 저장소에 기록된 파일 모드를 `100755`로 고쳐 다른 릴리스 스크립트(`verify.sh`, `smoke-offline.sh`, `e2e-docker.sh`)와 같은 권한을 갖도록 했습니다
+
+### 변경
+
+- 릴리스 검증 사슬의 성공 경로 출력을 줄였습니다. `npm ci`는 `--loglevel=error`, 웹 테스트는 `--reporter=dot`, Vite 빌드는 `--logLevel=warn`으로 돌고, Docker 빌드는 `scripts/build-image.sh`가 레이어 로그를 파일로 받아 두었다가 실패했을 때만 그대로 내보냅니다. 실패까지 감추는 `>/dev/null` 리다이렉트나 실패 레이어 로그를 지우는 `--quiet`는 쓰지 않으므로 실패 상세는 종전과 같습니다
+- Playwright 콘솔 reporter를 `PLAYWRIGHT_REPORTER` 환경변수로 고를 수 있습니다(기본 `list`, `scripts/e2e-docker.sh`는 `dot`을 넘깁니다). HTML 보고서와 실패 시 상세 출력은 그대로 유지합니다
+
+### 문서
+
+- README 개발 검증 안내에 성공·실패 경로의 출력 차이와 `PLAYWRIGHT_REPORTER` 사용법을 적었습니다. 문서 프로파일을 v0.2.20으로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.19와 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.20으로 갱신되어 있습니다
+
 ## [0.2.19] - 2026-09-24
 
 ### 수정
@@ -307,7 +323,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.19...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.20...HEAD
+[0.2.20]: https://github.com/hkjang/jikim/releases/tag/v0.2.20
 [0.2.19]: https://github.com/hkjang/jikim/releases/tag/v0.2.19
 [0.2.18]: https://github.com/hkjang/jikim/releases/tag/v0.2.18
 [0.2.17]: https://github.com/hkjang/jikim/releases/tag/v0.2.17
