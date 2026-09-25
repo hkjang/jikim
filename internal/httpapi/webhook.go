@@ -85,7 +85,13 @@ func (s *Server) queueWebhook(r *http.Request, eventType, resource string, data 
 			}
 		}()
 	default:
-		_ = s.completeWebhookDelivery(context.Background(), delivery.ID, 0, errors.New("webhook 전송 대기열이 가득 찼습니다"))
+		// 기록까지 실패하면 delivery 행이 pending으로 영원히 남는다. 그때 아무것도
+		// 남기지 않으면 관리자는 "전송도 안 됐고 실패로도 안 찍힌" 이벤트를 원인 없이 본다.
+		if updateErr := s.completeWebhookDelivery(context.Background(), delivery.ID, 0,
+			errors.New("webhook 전송 대기열이 가득 찼습니다")); updateErr != nil {
+			s.logger.Warn("webhook delivery 기록 실패", "error", updateErr, "delivery_id", delivery.ID,
+				"event", eventType, "request_id", requestIDFrom(r))
+		}
 	}
 }
 
