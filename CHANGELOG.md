@@ -9,6 +9,21 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.22] - 2026-09-25
+
+### 수정
+
+- Webhook 전송 대기열이 가득 찬 상태에서 delivery 기록까지 실패하면 아무 흔적도 남지 않던 오류 수정. `queueWebhook`의 대기열 포화 분기가 `completeWebhookDelivery`의 반환값을 버려, 저장소가 흔들리는 동안 대기열이 가득 차면 delivery 행이 `pending`으로 영원히 남고 로그에도 아무것도 남지 않았습니다. 관리자는 "전송도 되지 않았고 실패로도 찍히지 않은" 이벤트를 원인 없이 보게 되던 자리입니다. 이제 전송 경로가 이미 쓰던 것과 같은 `logger.Warn`(delivery ID, event 종류, 요청 ID, 오류만 — payload와 서명 키는 남기지 않습니다)을 남깁니다. 대기열 포화 시 기록하는 상태 코드 `0`과 `webhook 전송 대기열이 가득 찼습니다` 문구는 종전과 같습니다
+
+### 변경
+
+- 회귀 테스트 3개를 추가했습니다. 기존 `webhookServer` 하네스와 실제 운영 HTTP 클라이언트로 왕복해 대기열 포화(경고 한 줄, 엔드포인트 요청 0건, 상태 코드 `0` 기록 1회, 로그에 payload와 서명 키 없음), 여유 슬롯(엔드포인트가 서명된 요청 수신, 경고 없음), `302` 리다이렉트 비추종(두 번째 URL 요청 0건, `ok:false`와 `status_code:302`)을 고정합니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.22로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.21과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.22로 갱신되어 있습니다
+
 ## [0.2.21] - 2026-09-25
 
 ### 수정
@@ -339,7 +354,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.21...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.22...HEAD
+[0.2.22]: https://github.com/hkjang/jikim/releases/tag/v0.2.22
 [0.2.21]: https://github.com/hkjang/jikim/releases/tag/v0.2.21
 [0.2.20]: https://github.com/hkjang/jikim/releases/tag/v0.2.20
 [0.2.19]: https://github.com/hkjang/jikim/releases/tag/v0.2.19
