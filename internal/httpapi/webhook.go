@@ -27,8 +27,32 @@ type webhookEvent struct {
 	Data       map[string]any `json:"data,omitempty"`
 }
 
+// webhookConfig, createWebhookDelivery, completeWebhookDelivery reach the store
+// through seams so the webhook handlers can run without a database.
+func (s *Server) webhookConfig(ctx context.Context) (store.WebhookConfig, error) {
+	if s.webhookConfigLoader != nil {
+		return s.webhookConfigLoader(ctx)
+	}
+	return s.store.WebhookConfig(ctx)
+}
+
+func (s *Server) createWebhookDelivery(ctx context.Context, id, eventType, resource string,
+	actorID *string, requestID string, payload any) (store.WebhookDelivery, error) {
+	if s.webhookCreator != nil {
+		return s.webhookCreator(ctx, id, eventType, resource, actorID, requestID, payload)
+	}
+	return s.store.CreateWebhookDelivery(ctx, id, eventType, resource, actorID, requestID, payload)
+}
+
+func (s *Server) completeWebhookDelivery(ctx context.Context, id string, statusCode int, deliveryErr error) error {
+	if s.webhookCompleter != nil {
+		return s.webhookCompleter(ctx, id, statusCode, deliveryErr)
+	}
+	return s.store.CompleteWebhookDelivery(ctx, id, statusCode, deliveryErr)
+}
+
 func (s *Server) queueWebhook(r *http.Request, eventType, resource string, data map[string]any) {
-	cfg, err := s.store.WebhookConfig(r.Context())
+	cfg, err := s.webhookConfig(r.Context())
 	if err != nil {
 		s.logger.Warn("webhook 설정 조회 실패", "error", err, "request_id", requestIDFrom(r))
 		return
@@ -45,7 +69,7 @@ func (s *Server) queueWebhook(r *http.Request, eventType, resource string, data 
 	}
 	event := webhookEvent{DeliveryID: id, Event: eventType, OccurredAt: time.Now().UTC(),
 		Resource: resource, ActorID: actorID, RequestID: requestIDFrom(r), Data: data}
-	delivery, err := s.store.CreateWebhookDelivery(r.Context(), id, eventType, resource, &actorID, requestIDFrom(r), event)
+	delivery, err := s.createWebhookDelivery(r.Context(), id, eventType, resource, &actorID, requestIDFrom(r), event)
 	if err != nil {
 		s.logger.Warn("webhook delivery 저장 실패", "error", err, "event", eventType)
 		return
@@ -61,12 +85,12 @@ func (s *Server) queueWebhook(r *http.Request, eventType, resource string, data 
 			}
 		}()
 	default:
-		_ = s.store.CompleteWebhookDelivery(context.Background(), delivery.ID, 0, errors.New("webhook 전송 대기열이 가득 찼습니다"))
+		_ = s.completeWebhookDelivery(context.Background(), delivery.ID, 0, errors.New("webhook 전송 대기열이 가득 찼습니다"))
 	}
 }
 
 func (s *Server) webhookTest(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.WebhookConfig(r.Context())
+	cfg, err := s.webhookConfig(r.Context())
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -84,7 +108,7 @@ func (s *Server) webhookTest(w http.ResponseWriter, r *http.Request) {
 	event := webhookEvent{DeliveryID: id, Event: "integration.test", OccurredAt: time.Now().UTC(),
 		Resource: "integrations/webhook", ActorID: session.User.ID, RequestID: requestIDFrom(r),
 		Data: map[string]any{"message": "jikim webhook 연결 테스트"}}
-	delivery, err := s.store.CreateWebhookDelivery(r.Context(), id, event.Event, event.Resource,
+	delivery, err := s.createWebhookDelivery(r.Context(), id, event.Event, event.Resource,
 		&session.User.ID, event.RequestID, event)
 	if err != nil {
 		s.storeError(w, r, err)
@@ -119,7 +143,7 @@ func (s *Server) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	cfg, err := s.store.WebhookConfig(r.Context())
+	cfg, err := s.webhookConfig(r.Context())
 	if err != nil {
 		s.storeError(w, r, err)
 		return
@@ -142,7 +166,7 @@ func (s *Server) deliverWebhook(ctx context.Context, cfg store.WebhookConfig, de
 	signature := webhookSignature(cfg.SigningSecret, timestamp, delivery.Payload)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.URL, bytes.NewReader(delivery.Payload))
 	if err != nil {
-		_ = s.store.CompleteWebhookDelivery(context.Background(), delivery.ID, 0, err)
+		_ = s.completeWebhookDelivery(context.Background(), delivery.ID, 0, err)
 		return 0, err
 	}
 	request.Header.Set("Content-Type", "application/json")
@@ -154,7 +178,7 @@ func (s *Server) deliverWebhook(ctx context.Context, cfg store.WebhookConfig, de
 	request.Header.Set("X-Jikim-Signature-256", signature)
 	response, err := s.httpClient.Do(request)
 	if err != nil {
-		_ = s.store.CompleteWebhookDelivery(context.Background(), delivery.ID, 0, err)
+		_ = s.completeWebhookDelivery(context.Background(), delivery.ID, 0, err)
 		return 0, err
 	}
 	defer response.Body.Close()
@@ -162,8 +186,11 @@ func (s *Server) deliverWebhook(ctx context.Context, cfg store.WebhookConfig, de
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		err = fmt.Errorf("webhook 응답 상태 %d", response.StatusCode)
 	}
-	if updateErr := s.store.CompleteWebhookDelivery(context.Background(), delivery.ID, response.StatusCode, err); updateErr != nil {
-		return response.StatusCode, updateErr
+	// 기록 실패는 전송 결과가 아니다. 저장소 오류를 delivery 오류 자리에 넣으면
+	// 관리자가 자기 DB 장애를 고객 엔드포인트 장애로 오진하고 멀쩡한 URL을 고친다.
+	if updateErr := s.completeWebhookDelivery(context.Background(), delivery.ID, response.StatusCode, err); updateErr != nil {
+		s.logger.Warn("webhook delivery 기록 실패", "error", updateErr, "delivery_id", delivery.ID,
+			"event", delivery.EventType, "request_id", delivery.RequestID, "status_code", response.StatusCode)
 	}
 	return response.StatusCode, err
 }

@@ -40,6 +40,10 @@ type Server struct {
 	mcpOAuthLoader    func(context.Context) (store.MCPOAuthConfig, error)
 	oidcUserFinder    func(context.Context, string, string) (model.User, error)
 	oauthProviders    oauthProviders
+
+	webhookConfigLoader func(context.Context) (store.WebhookConfig, error)
+	webhookCreator      func(context.Context, string, string, string, *string, string, any) (store.WebhookDelivery, error)
+	webhookCompleter    func(context.Context, string, int, error) error
 }
 
 func New(st *store.Store, logger *slog.Logger) http.Handler {
