@@ -9,6 +9,22 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.21] - 2026-09-25
+
+### 수정
+
+- Webhook 연결 테스트가 저장소 장애를 엔드포인트 장애로 보고하던 오류 수정. `deliverWebhook`이 `CompleteWebhookDelivery`의 오류를 전송 오류 자리에 넣어 반환해, 엔드포인트가 `200`으로 정상 응답해도 delivery 기록에 실패하면 관리 화면이 `ok:false`와 `Webhook endpoint가 요청을 수락하지 않았습니다`를 내보냈습니다. 관리자가 자기 데이터베이스 장애를 보면서 멀쩡한 URL을 고치게 되던 문제입니다. 기록 실패는 이제 `logger.Warn`(delivery ID, event 종류, 요청 ID, 상태 코드만 — payload와 서명 키는 남기지 않습니다)으로만 남고, 전송 결과는 항상 엔드포인트가 답한 그대로 보고합니다. 저장소 장애 자체는 종전처럼 `/readyz`와 `500` 응답으로 드러납니다
+
+### 변경
+
+- `webhook.go`의 store 호출 세 곳(`WebhookConfig`, `CreateWebhookDelivery`, `CompleteWebhookDelivery`)을 기존 seam과 같은 nil-폴백 방식의 작은 메서드로 모았습니다. 설정하지 않으면 `s.store`를 그대로 부르므로 동작은 같으며, webhook 핸들러를 데이터베이스 없이 실제 엔드포인트로 시험할 수 있습니다. 서명, 헤더와 리다이렉트 비추종 계약은 변경하지 않았습니다
+- 회귀 테스트 4개를 추가했습니다. 실제 `httptest` 엔드포인트와 운영 HTTP 클라이언트로 `webhookTest` 핸들러를 왕복해 `200`에 기록 실패가 겹친 경우와 전송 실패가 저장소 오류에 덮이던 경우를 고정합니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.21로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.20과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.21로 갱신되어 있습니다
+
 ## [0.2.20] - 2026-09-24
 
 ### 수정
@@ -323,7 +339,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.20...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.21...HEAD
+[0.2.21]: https://github.com/hkjang/jikim/releases/tag/v0.2.21
 [0.2.20]: https://github.com/hkjang/jikim/releases/tag/v0.2.20
 [0.2.19]: https://github.com/hkjang/jikim/releases/tag/v0.2.19
 [0.2.18]: https://github.com/hkjang/jikim/releases/tag/v0.2.18
