@@ -246,6 +246,66 @@ func TestPolicyReportsAreRecordedOnceAndListedForAdministrators(t *testing.T) {
 	}
 }
 
+// The report endpoint is unauthenticated because a browser posts without
+// credentials, but while tracking is off no browser has been given the
+// report-uri at all — so anything arriving there is injected from outside and
+// must not reach the administrator's blocked-origins list.
+func TestPolicyReportsAreOnlyRecordedWhileTrackingIsOn(t *testing.T) {
+	const report = `{"csp-report":{"blocked-uri":"https://pixel.corp.example/p.gif","effective-directive":"img-src","document-uri":"https://jikim.example/dashboard"}}`
+	postReports := func(t *testing.T, handler http.Handler, times int) {
+		t.Helper()
+		for index := 0; index < times; index++ {
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, cspReportPath, strings.NewReader(report))
+			request.Header.Set("Content-Type", "application/csp-report")
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusNoContent {
+				t.Fatalf("report %d status=%d", index, response.Code)
+			}
+			if response.Body.Len() != 0 {
+				t.Fatalf("report %d answered with a body: %s", index, response.Body.String())
+			}
+		}
+	}
+	listViolations := func(t *testing.T, server *Server, handler http.Handler) string {
+		t.Helper()
+		server.sessionResolver = func(context.Context, string) (model.Session, error) {
+			return model.Session{User: model.User{ID: "u1", Username: "admin", Role: "admin"}}, nil
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, tokenRequest(http.MethodGet, "/api/v1/tracking/violations"))
+		if response.Code != http.StatusOK {
+			t.Fatalf("list status=%d body=%s", response.Code, response.Body.String())
+		}
+		return response.Body.String()
+	}
+
+	t.Run("tracking off records nothing", func(t *testing.T) {
+		server, handler := trackingServer(t, tracking.ReadConfig(nil), nil)
+		postReports(t, handler, 5)
+		if body := listViolations(t, server, handler); !strings.Contains(body, `"data":[]`) {
+			t.Fatalf("a report reached the list while tracking is off: %s", body)
+		}
+	})
+
+	t.Run("tracking on records once per origin", func(t *testing.T) {
+		server, handler := trackingServer(t, momentoConfig(), nil)
+		postReports(t, handler, 3)
+		body := listViolations(t, server, handler)
+		if strings.Count(body, `"origin":"https://pixel.corp.example"`) != 1 || !strings.Contains(body, `"count":3`) {
+			t.Fatalf("list body=%s", body)
+		}
+	})
+
+	t.Run("settings outage records nothing", func(t *testing.T) {
+		server, handler := trackingServer(t, momentoConfig(), errors.New(`failed to connect to "host=postgres.internal": SQLSTATE 08006`))
+		postReports(t, handler, 2)
+		if body := listViolations(t, server, handler); !strings.Contains(body, `"data":[]`) {
+			t.Fatalf("a report was recorded while the settings read failed: %s", body)
+		}
+	})
+}
+
 func TestAllowingAnOriginRefusesWhatCannotBeAllowed(t *testing.T) {
 	server, handler := trackingServer(t, momentoConfig(), nil)
 	server.sessionResolver = func(context.Context, string) (model.Session, error) {
