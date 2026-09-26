@@ -139,6 +139,35 @@ func TestAdminScreensAreSkippedUnlessAsked(t *testing.T) {
 	}
 }
 
+// A report names the refused page, and that name comes from whoever posted the
+// report — so the reporting gate must not depend on a path. An install that
+// tracks only the administrative screens still has to hear what they refused.
+func TestReportingFollowsTheSwitchNotThePath(t *testing.T) {
+	off := ReadConfig(nil)
+	if off.ReportingActive() {
+		t.Fatal("a fresh install would keep reports")
+	}
+	config := ReadConfig(map[string]any{"enabled": true, "provider": "ga4", "measurement_id": "G-1"})
+	if !config.ReportingActive() {
+		t.Fatal("enabled tracking drops the reports its own policy asked for")
+	}
+	if config.Active("/admin/settings") {
+		t.Fatal("this case only means something while the admin page is untracked")
+	}
+	if !config.ReportingActive() {
+		t.Fatal("reporting followed the admin path rule")
+	}
+	// Switched off again, and a provider chosen but unconfigured, both stop.
+	config.Enabled = false
+	if config.ReportingActive() {
+		t.Fatal("switching tracking off left reporting on")
+	}
+	config.Enabled, config.MeasurementID = true, ""
+	if config.ReportingActive() {
+		t.Fatal("a provider with nothing to inject still kept reports")
+	}
+}
+
 func TestValidateRefusesWhatCannotWork(t *testing.T) {
 	bad := []map[string]any{
 		{"provider": "piwik"},

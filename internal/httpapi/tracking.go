@@ -140,6 +140,12 @@ func (s *Server) receiveCSPReport(w http.ResponseWriter, r *http.Request) {
 	if s.violations == nil {
 		return
 	}
+	// While tracking is off no page was ever given the report-uri, so a report
+	// arriving here came from outside the browser. Recording it would let anyone
+	// fill the administrator's blocked-origins list on a fresh install.
+	if !s.trackingConfig(r.Context()).ReportingActive() {
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxCSPReportBytes))
 	if err != nil || len(body) == 0 {
 		return

@@ -98,6 +98,19 @@ func AdminPath(path string) bool {
 		path == "/access/authentication"
 }
 
+// ReportingActive reports whether the policy handed to any browser carries the
+// report-uri, which is what makes an arriving report worth keeping. It is
+// Active without the per-path rule on purpose: a report names the page that was
+// refused, and that name comes from whoever posted it, so it cannot gate
+// anything — and an install tracking only the administrative screens still has
+// to hear what those screens refused.
+func (c Config) ReportingActive() bool {
+	if !c.Enabled || c.Provider == ProviderNone || c.Provider == "" {
+		return false
+	}
+	return strings.TrimSpace(c.Snippet("")) != ""
+}
+
 // ProxyActive reports whether /momento/* should be forwarded to the collector.
 func (c Config) ProxyActive() bool {
 	return c.Enabled && c.Provider == ProviderMomento && c.MomentoProxy && strings.TrimSpace(c.MomentoURL) != ""
