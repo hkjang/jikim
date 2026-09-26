@@ -9,6 +9,22 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.23] - 2026-09-26
+
+### 수정
+
+- 방문자 추적이 꺼져 있어도 인증 없는 CSP 리포트가 관리자 진단 목록을 채우던 오류 수정. `receiveCSPReport`가 추적 설정을 보지 않고 무조건 리포트를 기록해, `report-uri`를 한 번도 내보낸 적 없는 기본 설치에서도 누구든 관리자의 "차단된 출처" 목록(최대 100건, 항목마다 CSP `script-src` 허용 버튼)을 임의 값으로 채울 수 있었습니다. 이제 추적 설정이 리포트를 내보내는 상태일 때만 기록합니다. 응답은 어느 분기로 빠지든 종전과 같은 본문 없는 `204`라서 응답만으로 추적 사용 여부를 알아낼 수 없습니다
+
+### 변경
+
+- 경로 규칙을 뺀 리포트 전용 활성 판정 `tracking.Config.ReportingActive()`를 추가했습니다. 리포트의 `document-uri`는 보내는 쪽이 정하는 값이라 경로 기반 판정을 게이트로 쓸 수 없고, `IncludeAdmin` 구성에서도 리포트는 받아야 하기 때문입니다. 기존 `Active(path)`의 동작과 시그니처는 그대로입니다
+- 회귀 테스트를 추가했습니다. 추적이 꺼진 상태에서 리포트 5건을 보내도 관리자 목록이 비어 있고, 켜진 상태에서 3건을 보내면 `count:3` 한 건으로 모이며, 설정을 읽지 못하면 기록하지 않는다는 것을 고정합니다. `ReportingActive`가 경로에 의존하지 않는다는 점은 `internal/tracking`의 단위 테스트로 따로 고정했습니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.23으로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.22와 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.23으로 갱신되어 있습니다
+
 ## [0.2.22] - 2026-09-25
 
 ### 수정
@@ -354,7 +370,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.22...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.23...HEAD
+[0.2.23]: https://github.com/hkjang/jikim/releases/tag/v0.2.23
 [0.2.22]: https://github.com/hkjang/jikim/releases/tag/v0.2.22
 [0.2.21]: https://github.com/hkjang/jikim/releases/tag/v0.2.21
 [0.2.20]: https://github.com/hkjang/jikim/releases/tag/v0.2.20
