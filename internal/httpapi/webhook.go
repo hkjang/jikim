@@ -167,12 +167,24 @@ func (s *Server) retryWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]any{"ok": deliveryErr == nil, "status_code": statusCode, "delivery": updated})
 }
 
+// recordWebhookOutcome closes the delivery row. 기록 실패는 전송 결과가 아니므로
+// 반환하지 않고 경고만 남긴다 — 저장소 오류를 delivery 오류 자리에 넣으면 관리자가
+// 자기 DB 장애를 고객 엔드포인트 장애로 오진하고 멀쩡한 URL을 고친다. 그렇다고
+// 버려서도 안 된다: 그러면 delivery 행이 pending으로 영원히 남고 관리자는
+// "전송도 안 됐고 실패로도 안 찍힌" 이벤트를 원인 없이 본다.
+func (s *Server) recordWebhookOutcome(delivery store.WebhookDelivery, statusCode int, deliveryErr error) {
+	if updateErr := s.completeWebhookDelivery(context.Background(), delivery.ID, statusCode, deliveryErr); updateErr != nil {
+		s.logger.Warn("webhook delivery 기록 실패", "error", updateErr, "delivery_id", delivery.ID,
+			"event", delivery.EventType, "request_id", delivery.RequestID, "status_code", statusCode)
+	}
+}
+
 func (s *Server) deliverWebhook(ctx context.Context, cfg store.WebhookConfig, delivery store.WebhookDelivery) (int, error) {
 	timestamp := strconv.FormatInt(time.Now().UTC().Unix(), 10)
 	signature := webhookSignature(cfg.SigningSecret, timestamp, delivery.Payload)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.URL, bytes.NewReader(delivery.Payload))
 	if err != nil {
-		_ = s.completeWebhookDelivery(context.Background(), delivery.ID, 0, err)
+		s.recordWebhookOutcome(delivery, 0, err)
 		return 0, err
 	}
 	request.Header.Set("Content-Type", "application/json")
@@ -184,7 +196,7 @@ func (s *Server) deliverWebhook(ctx context.Context, cfg store.WebhookConfig, de
 	request.Header.Set("X-Jikim-Signature-256", signature)
 	response, err := s.httpClient.Do(request)
 	if err != nil {
-		_ = s.completeWebhookDelivery(context.Background(), delivery.ID, 0, err)
+		s.recordWebhookOutcome(delivery, 0, err)
 		return 0, err
 	}
 	defer response.Body.Close()
@@ -192,12 +204,7 @@ func (s *Server) deliverWebhook(ctx context.Context, cfg store.WebhookConfig, de
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		err = fmt.Errorf("webhook 응답 상태 %d", response.StatusCode)
 	}
-	// 기록 실패는 전송 결과가 아니다. 저장소 오류를 delivery 오류 자리에 넣으면
-	// 관리자가 자기 DB 장애를 고객 엔드포인트 장애로 오진하고 멀쩡한 URL을 고친다.
-	if updateErr := s.completeWebhookDelivery(context.Background(), delivery.ID, response.StatusCode, err); updateErr != nil {
-		s.logger.Warn("webhook delivery 기록 실패", "error", updateErr, "delivery_id", delivery.ID,
-			"event", delivery.EventType, "request_id", delivery.RequestID, "status_code", response.StatusCode)
-	}
+	s.recordWebhookOutcome(delivery, response.StatusCode, err)
 	return response.StatusCode, err
 }
 
