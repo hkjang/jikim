@@ -9,6 +9,22 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.24] - 2026-09-27
+
+### 수정
+
+- Webhook이 엔드포인트에 닿지도 못한 상태에서 delivery 기록까지 실패하면 아무 흔적도 남지 않던 오류 수정. `deliverWebhook`의 요청 생성 실패와 전송 자체 실패(connection refused·DNS·TLS·타임아웃) 두 분기가 `completeWebhookDelivery`의 반환값을 버려, 엔드포인트가 죽은 동시에 저장소가 흔들리면 delivery 행이 `pending`으로 영원히 남고 로그에도 단서가 없었습니다. 관리자는 "보내지도 못했고 실패로도 찍히지 않은" 이벤트를 원인 없이 보게 되던 자리입니다. 이제 이 경로도 전송 경로가 이미 쓰던 것과 같은 문구·같은 식별자 필드(`delivery_id`·`event`·`request_id`·`status_code`·`error`)의 `logger.Warn`을 남기며, payload와 서명 키는 남기지 않습니다. 반환값, 기록하는 상태 코드와 `webhookTest` 응답 문구는 종전과 같습니다
+
+### 변경
+
+- 같은 모양으로 흩어져 있던 delivery 기록 세 자리를 `recordWebhookOutcome(delivery, statusCode, deliveryErr)` 헬퍼로 모았습니다. 경고 문구와 필드는 기존 것을 그대로 쓰며, 대기열 포화 분기와 `outbound_client.go`, `store/webhooks.go`는 손대지 않았습니다. 새 seam은 만들지 않았습니다
+- 회귀 테스트를 추가했습니다. 닿지 않는 엔드포인트와 기록 실패가 겹쳤을 때 경고가 정확히 한 줄 남는다는 것을 기존 `webhookServer` 하네스로 고정하며, 엔드포인트 도달 실패를 보고하는 기존 테스트는 수정 없이 계속 통과합니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.24로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.23과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.24로 갱신되어 있습니다
+
 ## [0.2.23] - 2026-09-26
 
 ### 수정
@@ -370,7 +386,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.23...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.24...HEAD
+[0.2.24]: https://github.com/hkjang/jikim/releases/tag/v0.2.24
 [0.2.23]: https://github.com/hkjang/jikim/releases/tag/v0.2.23
 [0.2.22]: https://github.com/hkjang/jikim/releases/tag/v0.2.22
 [0.2.21]: https://github.com/hkjang/jikim/releases/tag/v0.2.21
