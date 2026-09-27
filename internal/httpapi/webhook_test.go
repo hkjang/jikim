@@ -253,6 +253,58 @@ func TestDeliverWebhookReportsUnreachableEndpoint(t *testing.T) {
 	}
 }
 
+// 엔드포인트에 닿지도 못했는데 실패 기록까지 실패하면 delivery 행은 pending으로
+// 영원히 남는다. 그때 아무 로그도 없으면 관리자는 "전송도 안 됐고 실패로도 안 찍힌"
+// 이벤트를 원인 없이 본다 — 경고 한 줄은 반드시 남아야 한다.
+func TestDeliverWebhookLogsWhenUnreachableRecordingFails(t *testing.T) {
+	endpoint := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	closedURL := endpoint.URL
+	endpoint.Close()
+	server, recorded := webhookServer(t, closedURL, driverFailure)
+	logs := captureWebhookLog(server)
+	cfg, err := server.webhookConfig(context.Background())
+	if err != nil {
+		t.Fatalf("설정을 읽지 못했습니다: %v", err)
+	}
+	delivery, err := server.createWebhookDelivery(context.Background(), "delivery-3", "integration.test",
+		"secrets/db", nil, "request-3", map[string]any{"name": "db"})
+	if err != nil {
+		t.Fatalf("delivery 생성 실패: %v", err)
+	}
+
+	statusCode, deliveryErr := server.deliverWebhook(context.Background(), cfg, delivery)
+
+	if statusCode != 0 || deliveryErr == nil {
+		t.Fatalf("status=%d err=%v", statusCode, deliveryErr)
+	}
+	if errors.Is(deliveryErr, driverFailure) {
+		t.Fatalf("저장소 오류가 전송 오류를 덮어썼습니다: %v", deliveryErr)
+	}
+	if len(*recorded) != 1 || (*recorded)[0] == nil {
+		t.Fatalf("전송 실패가 기록되지 않았습니다: %v", *recorded)
+	}
+
+	records := webhookWarnings(t, logs)
+	if len(records) != 1 {
+		t.Fatalf("경고가 한 줄이 아닙니다: %v", records)
+	}
+	record := records[0]
+	if record["level"] != "WARN" || record["msg"] != "webhook delivery 기록 실패" {
+		t.Fatalf("경고 줄이 다릅니다: %v", record)
+	}
+	if record["delivery_id"] != "delivery-3" || record["event"] != "integration.test" ||
+		record["request_id"] != "request-3" || record["error"] == nil {
+		t.Fatalf("경고 필드가 부족합니다: %v", record)
+	}
+	if record["status_code"] != float64(0) {
+		t.Fatalf("status_code=%v", record["status_code"])
+	}
+	if body := logs.String(); strings.Contains(body, "payload") ||
+		strings.Contains(body, "01234567890123456789012345678901") || strings.Contains(body, `"db"`) {
+		t.Fatalf("로그에 원문이 새어 나왔습니다: %s", body)
+	}
+}
+
 // 대기열이 가득 차면 전송은 포기하지만 delivery 행은 실패로 닫아야 한다.
 // 그 기록마저 실패하면 행은 pending으로 영원히 남으므로, 관리자가 원인을
 // 찾을 수 있도록 경고 한 줄은 반드시 남아야 한다.
