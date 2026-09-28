@@ -9,6 +9,22 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.25] - 2026-09-28
+
+### 수정
+
+- 로그아웃과 토큰 폐기가 실패해도 아무 흔적이 남지 않던 오류 수정. `logout`, OIDC 로그아웃, OpenBao 호환 `auth/token/revoke-self` 세 경로가 세션 토큰 폐기의 반환값을 버려, 저장소가 흔들려 폐기에 실패해도 응답은 `204`·`302`로 나가고 같은 토큰이 TTL이 끝날 때까지 계속 인증을 통과했습니다. 관리자는 "로그아웃했는데도 살아 있는 세션"을 로그의 단서 하나 없이 보게 되던 자리입니다. 이제 폐기 실패에 `logger.Warn`(`error`·`source`·`request_id`)을 남기며, 세션 토큰 값은 남기지 않습니다. 상태 코드, 쿠키 만료, 리다이렉트 위치와 `auth/token/revoke-self` 응답 본문은 종전과 같습니다
+
+### 변경
+
+- 같은 모양으로 흩어져 있던 세션 토큰 폐기 세 자리를 `revokeSessionTokenOrLog(r, token, source)` 헬퍼로 모았습니다. 저장소 호출은 기존 nil-폴백 관례와 같은 seam 하나(`sessionRevoker`)로만 열었고, 인증 판정 경로는 손대지 않았습니다
+- 회귀 테스트를 추가했습니다. 세 경로 각각에서 폐기가 실패했을 때 경고가 정확히 한 줄 남고 로그 어디에도 세션 토큰이 찍히지 않는다는 것을, 성공 경로에서는 경고가 남지 않는다는 것을 실제 요청 왕복으로 고정합니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.25로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.24와 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.25로 갱신되어 있습니다
+
 ## [0.2.24] - 2026-09-27
 
 ### 수정
@@ -386,7 +402,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.24...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.25...HEAD
+[0.2.25]: https://github.com/hkjang/jikim/releases/tag/v0.2.25
 [0.2.24]: https://github.com/hkjang/jikim/releases/tag/v0.2.24
 [0.2.23]: https://github.com/hkjang/jikim/releases/tag/v0.2.23
 [0.2.22]: https://github.com/hkjang/jikim/releases/tag/v0.2.22
