@@ -264,7 +264,7 @@ func (s *Server) baoTokenCreate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) baoRevokeSelf(w http.ResponseWriter, r *http.Request) {
 	token, _ := r.Context().Value(tokenKey).(string)
-	_ = s.store.RevokeToken(r.Context(), token)
+	s.revokeSessionTokenOrLog(r, token, "openbao_revoke_self")
 	w.WriteHeader(http.StatusNoContent)
 }
 

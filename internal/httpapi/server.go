@@ -26,6 +26,7 @@ type Server struct {
 	aiLimiter         *aiRequestLimiter
 	webhookSlots      chan struct{}
 	sessionResolver   func(context.Context, string) (model.Session, error)
+	sessionRevoker    func(context.Context, string) error
 	authenticator     func(context.Context, string, string) (model.User, error)
 	securityLoader    func(context.Context) (store.SecurityConfig, error)
 	transitAuthorizer func(context.Context, model.User, string, string) (bool, error)
@@ -219,6 +220,28 @@ func (s *Server) resolveSession(ctx context.Context, token string) (model.Sessio
 		return s.sessionResolver(ctx, token)
 	}
 	return s.store.SessionByToken(ctx, token)
+}
+
+func (s *Server) revokeSessionToken(ctx context.Context, token string) error {
+	if s.sessionRevoker != nil {
+		return s.sessionRevoker(ctx, token)
+	}
+	return s.store.RevokeToken(ctx, token)
+}
+
+// revokeSessionTokenOrLog gives up the caller's session without changing what
+// the caller is told. A logout that reported failure would leave the client
+// holding its cookie, so the revocation still cannot fail the request — but a
+// token that survived its own logout stays valid until its TTL expires, and
+// that is exactly the state an incident starts from. The warning is the only
+// trace of it, so it carries the identifiers and never the token itself.
+func (s *Server) revokeSessionTokenOrLog(r *http.Request, token, source string) {
+	if token == "" {
+		return
+	}
+	if err := s.revokeSessionToken(r.Context(), token); err != nil {
+		s.logger.Warn("세션 토큰 폐기 실패", "error", err, "source", source, "request_id", requestIDFrom(r))
+	}
 }
 
 func (s *Server) authenticate(ctx context.Context, username, rawPassword string) (model.User, error) {
