@@ -376,9 +376,7 @@ func (s *Server) openOIDCState(sealed string, value any) error {
 func (s *Server) oidcLogout(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionFrom(r)
 	token, _ := r.Context().Value(tokenKey).(string)
-	if token != "" {
-		_ = s.store.RevokeToken(r.Context(), token)
-	}
+	s.revokeSessionTokenOrLog(r, token, "oidc_logout")
 	clearSessionCookie(w, r)
 	w.Header().Set("Cache-Control", "no-store")
 

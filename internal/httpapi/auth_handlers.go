@@ -102,9 +102,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	token, _ := r.Context().Value(tokenKey).(string)
-	if token != "" {
-		_ = s.store.RevokeToken(r.Context(), token)
-	}
+	s.revokeSessionTokenOrLog(r, token, "logout")
 	http.SetCookie(w, &http.Cookie{Name: "jikim_session", Value: "", Path: "/", HttpOnly: true,
 		Secure: requestIsHTTPS(r), SameSite: http.SameSiteStrictMode, MaxAge: -1, Expires: time.Unix(0, 0)})
 	w.WriteHeader(http.StatusNoContent)
