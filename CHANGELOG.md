@@ -9,6 +9,21 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.26] - 2026-09-29
+
+### 수정
+
+- CSP 진단 목록에서 연결만 허용한 출처의 스크립트 차단까지 허용됨으로 표시하던 오류 수정. `Recorder.List`가 script/connect/image 허용 목록을 합쳐 판정하던 것을 지시어별 `PolicySources` 조회로 바꿨습니다. 관리자는 이제 신고된 지시어에 해당하는 허용 상태를 확인할 수 있습니다
+
+### 변경
+
+- 실제 Server routes·Recorder·Config를 사용하는 HTTP 회귀 테스트 8개로 페이지 CSP 헤더와 리포트 POST → 관리자 GET의 허용 상태가 일치하는지 검증합니다. 수정 전 4개 실패, 수정 후 통과, 원복 시 같은 실패를 확인했습니다
+
+### 문서
+
+- 관리자 가이드의 CSP 진단 설명과 문서 프로파일을 v0.2.26으로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.25와 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 기존 파일을 유지했습니다. 최신 CSP 진단 설명은 Markdown 관리자 가이드를 참조하십시오
+
 ## [0.2.25] - 2026-09-28
 
 ### 수정
@@ -402,7 +417,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.25...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.26...HEAD
+[0.2.26]: https://github.com/hkjang/jikim/releases/tag/v0.2.26
 [0.2.25]: https://github.com/hkjang/jikim/releases/tag/v0.2.25
 [0.2.24]: https://github.com/hkjang/jikim/releases/tag/v0.2.24
 [0.2.23]: https://github.com/hkjang/jikim/releases/tag/v0.2.23
