@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -376,5 +378,72 @@ func TestMomentoProxyForwardsWithoutCredentials(t *testing.T) {
 	_, handler = trackingServer(t, config, nil)
 	if got := getPage(handler, "/momento/tracker.js").Code; got != http.StatusNotFound {
 		t.Fatalf("proxy stayed open with momento_proxy off: %d", got)
+	}
+}
+
+func TestTrackingViolationAllowanceMatchesDirectivePolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, origin, directive, policyDirective, source string
+		allowed                                          bool
+	}{
+		{"connect-only origin cannot load scripts", "https://analytics.google.com", "script-src", "script-src", "https://analytics.google.com", false},
+		{"script element uses script policy", "https://analytics.google.com", "script-src-elem", "script-src", "https://analytics.google.com", false},
+		{"script origin allows elements", "https://www.googletagmanager.com", "script-src-elem", "script-src", "https://www.googletagmanager.com", true},
+		{"connection remains allowed", "https://analytics.google.com", "connect-src", "connect-src", "https://analytics.google.com", true},
+		{"image remains allowed", "https://www.googletagmanager.com", "img-src", "img-src", "https://www.googletagmanager.com", true},
+		{"wildcard only allows connections", "https://region1.google-analytics.com", "img-src", "img-src", "https://*.google-analytics.com", false},
+		{"wildcard connection remains allowed", "https://region1.google-analytics.com", "connect-src", "connect-src", "https://*.google-analytics.com", true},
+		{"unconfigured directive remains blocked", "https://www.googletagmanager.com", "frame-src", "default-src", "https://www.googletagmanager.com", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := tracking.ReadConfig(map[string]any{"enabled": true, "provider": "ga4", "measurement_id": "G-1"})
+			server, handler := trackingServer(t, config, nil)
+			page := getPage(handler, "/dashboard")
+			if page.Code != http.StatusOK {
+				t.Fatalf("page status=%d", page.Code)
+			}
+			var sources []string
+			for _, directive := range strings.Split(page.Header().Get("Content-Security-Policy"), ";") {
+				fields := strings.Fields(directive)
+				if len(fields) > 0 && fields[0] == tc.policyDirective {
+					sources = fields[1:]
+				}
+			}
+			found := false
+			for _, source := range sources {
+				if source == tc.source {
+					found = true
+				}
+			}
+			if found != tc.allowed {
+				t.Fatalf("unexpected actual policy: %v", sources)
+			}
+			report := fmt.Sprintf(`{"csp-report":{"blocked-uri":%q,"effective-directive":%q,"document-uri":"https://jikim.example/dashboard"}}`, tc.origin+"/resource", tc.directive)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, cspReportPath, strings.NewReader(report)))
+			if response.Code != http.StatusNoContent {
+				t.Fatalf("report status=%d", response.Code)
+			}
+			server.sessionResolver = func(context.Context, string) (model.Session, error) {
+				return model.Session{User: model.User{ID: "u1", Role: "admin"}}, nil
+			}
+			response = httptest.NewRecorder()
+			handler.ServeHTTP(response, tokenRequest(http.MethodGet, "/api/v1/tracking/violations"))
+			var result struct {
+				Data []tracking.Violation `json:"data"`
+			}
+			if response.Code != http.StatusOK {
+				t.Fatalf("list status=%d", response.Code)
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Data) != 1 {
+				t.Fatalf("violations=%+v", result.Data)
+			}
+			if result.Data[0].Allowed != tc.allowed {
+				t.Fatalf("directive=%s origin=%s allowed=%v, want %v", tc.directive, tc.origin, result.Data[0].Allowed, tc.allowed)
+			}
+		})
 	}
 }

@@ -88,18 +88,24 @@ func (r *Recorder) evictOldest() {
 // List returns the blocked origins, most recent first, marking the ones the
 // current configuration already allows so a fixed snippet stops nagging.
 func (r *Recorder) List(config Config) []Violation {
-	allowed := make(map[string]struct{})
+	allowedByDirective := make(map[string]map[string]struct{})
 	scripts, connects, images := config.PolicySources()
-	for _, group := range [][]string{scripts, connects, images} {
+	for directive, group := range map[string][]string{
+		"script-src": scripts, "script-src-elem": scripts, "script-src-attr": scripts,
+		"connect-src": connects, "img-src": images,
+	} {
+		allowed := make(map[string]struct{})
 		for _, origin := range group {
 			allowed[strings.ToLower(strings.TrimSuffix(origin, "/"))] = struct{}{}
 		}
+		allowedByDirective[directive] = allowed
 	}
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	items := make([]Violation, 0, len(r.violations))
 	for _, violation := range r.violations {
 		copied := *violation
+		allowed := allowedByDirective[copied.Directive]
 		_, known := allowed[copied.Origin]
 		copied.Allowed = known || matchesWildcard(copied.Origin, allowed)
 		items = append(items, copied)
