@@ -15,9 +15,18 @@ jikim은 한국어 우선 관리 경험, 폐쇄망 배포와 검증 가능한 Op
 ## 개발 환경
 
 - Go: `go.mod`에 선언된 버전 이상
-- Node.js 24 및 npm
+- Node.js 24 및 npm (`.nvmrc`. `nvm use`로 맞출 수 있습니다)
 - Docker Engine과 Docker Compose v2
 - PostgreSQL 17은 CI 스모크 테스트 프로파일이며, 다른 지원 버전은 테스트 결과로 명시
+
+CI와 Docker 이미지는 Node.js 24로 고정하고, `web/package.json`의 `engines.node`에는
+의존성이 실제로 요구하는 하한(`>=22.22.2`)을 적습니다. jsdom은 이 하한 미만에서
+테스트 파일을 시작조차 못 한 채 내부에서 죽으므로, `scripts/verify.sh`와
+`web/vitest.config.ts`가 각각 설치 전과 테스트 실행 프로세스에서 하한을 확인합니다.
+`npm`은 lifecycle 스크립트의 `PATH` 앞에 상위 디렉터리의 `node_modules/.bin`을 모두
+붙이기 때문에, 그중 하나에 `node` 심링크가 있으면 셸과 다른 런타임으로 vitest가
+돌아갑니다. 그래서 `test` 스크립트는 `npm`을 실행한 인터프리터(`npm_node_execpath`)로
+vitest를 직접 부릅니다.
 
 의존성을 설치합니다.
 

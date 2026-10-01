@@ -42,6 +42,15 @@ fi
 go test "${GO_PACKAGES[@]}"
 go vet "${GO_PACKAGES[@]}"
 
+# 프런트 검증은 web/package.json 의 engines.node 하한을 넘겨야 돈다. 하한 미만에서는
+# jsdom 이 내부에서 죽어 원인을 읽을 수 없으므로, 설치 전에 읽을 수 있는 한 줄로 멈춘다.
+readonly NODE_FLOOR='22.22.2'
+NODE_VERSION="$(node -p 'process.versions.node')"
+if [[ "$(printf '%s\n%s\n' "${NODE_FLOOR}" "${NODE_VERSION}" | sort -V | head -n1)" != "${NODE_FLOOR}" ]]; then
+  printf 'Node.js %s 이상이 필요합니다. 현재: v%s (.nvmrc 참고)\n' "${NODE_FLOOR}" "${NODE_VERSION}" >&2
+  exit 1
+fi
+
 # 성공 경로의 진행 출력(설치 목록·테스트 이름·산출물 목록)은 줄이고, 실패 상세는
 # 각 도구가 그대로 내도록 둔다. 실패까지 숨기는 >/dev/null 리다이렉트는 쓰지 않는다.
 npm --prefix web ci --no-audit --no-fund --loglevel=error
