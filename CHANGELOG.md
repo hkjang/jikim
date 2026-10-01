@@ -9,6 +9,20 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.27] - 2026-10-02
+
+### 변경
+
+- 프런트 테스트가 저장소가 요구하는 Node.js에서 돌도록 고쳤습니다. `npm`은 lifecycle 스크립트의 `PATH` 앞에 상위 디렉터리의 `node_modules/.bin`을 모두 붙이기 때문에, 그중 하나에 `node` 심링크가 있으면 vitest의 `#!/usr/bin/env node`가 셸과 다른 런타임으로 해석됩니다. 그 런타임이 하한 미만이면 undici의 `webidl`이 Node 22.10에서 추가된 `worker_threads.markAsUncloneable`을 찾지 못해, jsdom 환경 테스트 파일이 시작조차 못 한 채 내부에서 죽고 원인을 읽을 수 없었습니다. `web/package.json`의 `test`·`test:watch`는 이제 `npm`을 실행한 인터프리터(`npm_node_execpath`)로 vitest를 직접 부릅니다
+- `web/package.json`에 `engines.node`(`>=22.22.2`, jsdom 30의 22 계열 하한)를 선언하고, `scripts/verify.sh`는 `npm ci` 전에, `web/vitest.config.ts`는 테스트를 실제로 돌리는 프로세스에서 하한을 확인합니다. 셸의 `node -v`만으로는 잡히지 않는 자리라 두 곳 모두에서 확인합니다. 하한 미만에서는 jsdom 크래시 대신 현재 버전과 실행 경로를 담은 한 줄로 멈춥니다
+- `.nvmrc`를 추가해 CI, Dockerfile과 문서가 쓰는 Node.js 24로 개발 환경을 맞출 수 있게 했습니다. CI 워크플로, Dockerfile과 의존성·`web/package-lock.json`은 손대지 않았으며 테스트를 끄거나 제외하지 않았습니다. 프런트 테스트 59개가 모두 그대로 돕니다
+
+### 문서
+
+- 기여 안내에 Node.js 하한과 `.nvmrc`가 가리키는 24가 다른 이유, `npm`의 lifecycle `PATH` 규칙이 만드는 실패를 적었습니다
+- 문서 프로파일을 v0.2.27로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.26과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.27로 갱신되어 있습니다
+
 ## [0.2.26] - 2026-09-29
 
 ### 수정
@@ -417,7 +431,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.26...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.27...HEAD
+[0.2.27]: https://github.com/hkjang/jikim/releases/tag/v0.2.27
 [0.2.26]: https://github.com/hkjang/jikim/releases/tag/v0.2.26
 [0.2.25]: https://github.com/hkjang/jikim/releases/tag/v0.2.25
 [0.2.24]: https://github.com/hkjang/jikim/releases/tag/v0.2.24

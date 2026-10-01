@@ -1,7 +1,7 @@
 {
   "name": "jikim-web",
   "private": true,
-  "version": "0.2.26",
+  "version": "0.2.27",
   "type": "module",
   "engines": {
     "node": ">=22.22.2"
