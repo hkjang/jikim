@@ -3,12 +3,15 @@
   "private": true,
   "version": "0.2.26",
   "type": "module",
+  "engines": {
+    "node": ">=22.22.2"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "\"${npm_node_execpath:-node}\" ./node_modules/vitest/vitest.mjs run",
+    "test:watch": "\"${npm_node_execpath:-node}\" ./node_modules/vitest/vitest.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "screenshots": "playwright test"
   },
