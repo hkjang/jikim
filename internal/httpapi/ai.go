@@ -52,6 +52,11 @@ var secretMaterialPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\b[A-Za-z0-9+/_=-]{48,}\b`),
 }
 
+// errAISecretMaterial marks the one rejection that is about Secret plaintext.
+// The other input rules report a malformed request, which is a different cause
+// and must not be reported as a leak.
+var errAISecretMaterial = errors.New("Secret 평문으로 보이는 내용은 AI에 전달할 수 없습니다")
+
 func ValidateAIInput(input aiChatInput) error {
 	input.Prompt = strings.TrimSpace(input.Prompt)
 	if input.Prompt == "" && len(input.Messages) == 0 {
@@ -76,7 +81,7 @@ func ValidateAIInput(input aiChatInput) error {
 	}
 	for _, pattern := range secretMaterialPatterns {
 		if pattern.MatchString(combined) {
-			return errors.New("Secret 평문으로 보이는 내용은 AI에 전달할 수 없습니다")
+			return errAISecretMaterial
 		}
 	}
 	if input.MaxTokens < 0 || input.MaxTokens > maximumAITokens {
@@ -91,7 +96,11 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := ValidateAIInput(input); err != nil {
-		writeError(w, r, http.StatusBadRequest, "secret_material_rejected", err.Error())
+		code := "invalid_ai_request"
+		if errors.Is(err, errAISecretMaterial) {
+			code = "secret_material_rejected"
+		}
+		writeError(w, r, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	cfg, err := s.store.AIConfig(r.Context())
