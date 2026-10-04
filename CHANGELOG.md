@@ -9,6 +9,23 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.28] - 2026-10-04
+
+### 수정
+
+- AI 채팅 입력 검증이 실패하는 모든 경우를 `secret_material_rejected`로 보고하던 오류 수정. 빈 입력, 허용되지 않은 message role, 빈 message, 총 262144바이트 초과, `max_tokens` 범위 초과까지 Secret과 무관한 다섯 가지 거절이 "Secret 평문이 섞였다"는 code로 나가, 클라이언트와 운영자가 잘못된 요청과 실제 Secret 유출 시도를 구분할 수 없었습니다. 이제 Secret 평문 거절만 `secret_material_rejected`이고, 나머지 다섯 거절은 `invalid_ai_request`로 각자의 원인을 알립니다
+- Secret 평문 거절의 code와 메시지, 여섯 경우 모두 `400`이라는 점, `ValidateAIInput`의 시그니처, Secret 판정 패턴, `max_tokens` 상한과 262144바이트 한도는 종전과 같습니다
+
+### 변경
+
+- Secret 평문 분기만 표시하는 패키지 수준 sentinel을 두고, 핸들러가 `errors.Is`로 두 code를 가립니다. 오류 문구로 분기하지 않습니다
+- 회귀 테스트를 추가했습니다. 실제 인증·request ID 미들웨어를 거친 요청 왕복으로 여섯 가지 거절 각각의 상태 코드와 code를 고정합니다. 수정 전 다섯 개 실패, 수정 후 통과, 핸들러 분기를 원복하면 같은 다섯 개가 다시 실패하는 것을 확인했습니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.28로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.27과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.28로 갱신되어 있습니다
+
 ## [0.2.27] - 2026-10-02
 
 ### 변경
@@ -431,7 +448,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.27...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.28...HEAD
+[0.2.28]: https://github.com/hkjang/jikim/releases/tag/v0.2.28
 [0.2.27]: https://github.com/hkjang/jikim/releases/tag/v0.2.27
 [0.2.26]: https://github.com/hkjang/jikim/releases/tag/v0.2.26
 [0.2.25]: https://github.com/hkjang/jikim/releases/tag/v0.2.25
