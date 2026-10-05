@@ -13,6 +13,7 @@ import (
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/hkjang/jikim/internal/ids"
+	"github.com/hkjang/jikim/internal/model"
 	"github.com/hkjang/jikim/internal/store"
 	"golang.org/x/oauth2"
 )
@@ -389,6 +390,20 @@ func (s *Server) openOIDCState(sealed string, value any) error {
 	return s.store.OpenOIDCState(sealed, value)
 }
 
+func (s *Server) consumeOIDCLoginCode(ctx context.Context, code string) (string, error) {
+	if s.oidcCodeConsumer != nil {
+		return s.oidcCodeConsumer(ctx, code)
+	}
+	return s.store.ConsumeOIDCLoginCode(ctx, code)
+}
+
+func (s *Server) loadUser(ctx context.Context, id string) (model.User, error) {
+	if s.userLoader != nil {
+		return s.userLoader(ctx, id)
+	}
+	return s.store.GetUser(ctx, id)
+}
+
 // oidcLogout terminates the local session before sending OIDC users to the
 // provider's RP-initiated logout endpoint. A provider outage must never keep a
 // local jikim session alive.
@@ -437,12 +452,20 @@ func (s *Server) oidcExchange(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	userID, err := s.store.ConsumeOIDCLoginCode(r.Context(), input.Code)
+	userID, err := s.consumeOIDCLoginCode(r.Context(), input.Code)
 	if err != nil {
+		if !errors.Is(err, store.ErrUnauthorized) {
+			s.storeError(w, r, err)
+			return
+		}
 		writeError(w, r, http.StatusUnauthorized, "invalid_login_code", "로그인 코드가 만료되었거나 이미 사용되었습니다")
 		return
 	}
-	user, err := s.store.GetUser(r.Context(), userID)
+	user, err := s.loadUser(r.Context(), userID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.storeError(w, r, err)
+		return
+	}
 	if err != nil || !user.Active {
 		writeError(w, r, http.StatusUnauthorized, "inactive_user", "사용자 계정이 비활성화되었습니다")
 		return
