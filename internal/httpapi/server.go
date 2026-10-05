@@ -36,6 +36,7 @@ type Server struct {
 	auditRecorder     func(context.Context, model.AuditEvent) error
 	storagePinger     func(context.Context) error
 	oidcStateOpener   func(string, any) error
+	oidcConfigLoader  func(context.Context) (store.OIDCConfig, error)
 	trackingLoader    func(context.Context) (tracking.Config, error)
 	violations        *tracking.Recorder
 	mcpOAuthLoader    func(context.Context) (store.MCPOAuthConfig, error)
