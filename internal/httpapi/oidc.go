@@ -39,6 +39,13 @@ type oidcDiscovery struct {
 	EndSessionEndpoint    string `json:"end_session_endpoint,omitempty"`
 }
 
+func (s *Server) loadOIDCConfig(ctx context.Context) (store.OIDCConfig, error) {
+	if s.oidcConfigLoader != nil {
+		return s.oidcConfigLoader(ctx)
+	}
+	return s.store.OIDCConfig(ctx)
+}
+
 func (s *Server) oidcPublicConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.store.OIDCConfig(r.Context())
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -118,8 +125,16 @@ func (s *Server) oidcTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.OIDCConfig(r.Context())
-	if err != nil || !cfg.Enabled || cfg.IssuerURL == "" || cfg.ClientID == "" {
+	// A settings read that could not run says nothing about whether SSO is
+	// configured. Only ErrNotFound means "no oidc row yet"; anything else is a
+	// storage fault and must be reported as one, or a working SSO deployment
+	// looks unconfigured the moment the database wobbles.
+	cfg, err := s.loadOIDCConfig(r.Context())
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.storeError(w, r, err)
+		return
+	}
+	if !cfg.Enabled || cfg.IssuerURL == "" || cfg.ClientID == "" {
 		writeError(w, r, http.StatusServiceUnavailable, "oidc_disabled", "OIDC 로그인이 설정되지 않았습니다")
 		return
 	}
@@ -241,7 +256,7 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var state oidcState
-	if err := s.store.OpenOIDCState(cookie.Value, &state); err != nil || time.Since(state.IssuedAt) > 10*time.Minute || time.Since(state.IssuedAt) < -time.Minute {
+	if err := s.openOIDCState(cookie.Value, &state); err != nil || time.Since(state.IssuedAt) > 10*time.Minute || time.Since(state.IssuedAt) < -time.Minute {
 		writeError(w, r, http.StatusBadRequest, "invalid_oidc_state", "OIDC 상태가 만료되었거나 올바르지 않습니다")
 		return
 	}
@@ -249,8 +264,12 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "invalid_oidc_state", "OIDC state 검증에 실패했습니다")
 		return
 	}
-	cfg, err := s.store.OIDCConfig(r.Context())
-	if err != nil || !cfg.Enabled {
+	cfg, err := s.loadOIDCConfig(r.Context())
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.storeError(w, r, err)
+		return
+	}
+	if !cfg.Enabled {
 		writeError(w, r, http.StatusServiceUnavailable, "oidc_disabled", "OIDC 로그인이 비활성화되었습니다")
 		return
 	}
