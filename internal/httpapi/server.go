@@ -41,6 +41,8 @@ type Server struct {
 	violations        *tracking.Recorder
 	mcpOAuthLoader    func(context.Context) (store.MCPOAuthConfig, error)
 	oidcUserFinder    func(context.Context, string, string) (model.User, error)
+	oidcCodeConsumer  func(context.Context, string) (string, error)
+	userLoader        func(context.Context, string) (model.User, error)
 	oauthProviders    oauthProviders
 
 	webhookConfigLoader func(context.Context) (store.WebhookConfig, error)
