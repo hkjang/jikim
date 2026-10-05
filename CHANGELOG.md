@@ -9,6 +9,24 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.29] - 2026-10-05
+
+### 수정
+
+- OIDC 로그인 시작과 콜백이 OIDC 설정 읽기 실패를 "OIDC 로그인이 설정되지 않았습니다"·"OIDC 로그인이 비활성화되었습니다"로 보고하던 오류 수정. `oidcLogin`과 `oidcCallback`이 설정 조회의 **모든** 오류를 `!cfg.Enabled`와 한 조건으로 묶어 `503` `oidc_disabled`로 내보내, PostgreSQL 장애나 `oidc_client_secret` 복호화 실패 순간 멀쩡히 설정된 SSO가 "설정되지 않았다"로 나갔습니다. 관리자는 이미 올바른 설정 화면을 다시 뒤지고 클라이언트는 재시도할 근거를 잃었습니다. 이제 저장소 장애는 `500` `internal_error`로 구분해 보고합니다
+- 새 설치 동작은 종전과 같습니다. 설정을 한 번도 저장하지 않은 경우(`store.ErrNotFound`), SSO를 끈 경우, 켰지만 Issuer·Client ID가 빈 경우는 모두 여전히 `503` `oidc_disabled`와 기존 한국어 문구입니다. 콜백 조건식에 Issuer·Client ID 검사를 더하지 않았으며 그 검사는 종전처럼 런타임 설정 검증이 받습니다
+
+### 변경
+
+- 같은 파일의 `oidcPublicConfig`·`oidcTest`가 이미 쓰던 `errors.Is(err, store.ErrNotFound)` 분리 형태로 두 자리를 맞췄습니다. 설정 로더 seam 한 줄과 nil 폴백 헬퍼를 두어, 저장소 없이도 두 분기를 요청 왕복으로 검증할 수 있게 했습니다
+- 콜백이 state 조회만 같은 파일의 기존 seam 헬퍼를 우회해 저장소를 직접 부르던 한 줄을 헬퍼로 바꿨습니다. nil 폴백이 같은 저장소 호출로 접히므로 동작은 종전과 같습니다
+- 회귀 테스트를 추가했습니다. 실제 request ID 미들웨어를 거친 요청 왕복으로 로그인 4개와 콜백 3개, 모두 7개 경우의 상태 코드와 code를 고정합니다. `500` 응답 본문에 DSN·호스트명·`SQLSTATE`가 새지 않고 ERROR 로그가 `request_id`를 담아 정확히 한 줄 남는 것까지 확인합니다. 수정 전 저장소 장애 2개 실패, 수정 후 통과, 두 분기를 따로 원복하면 각각 해당 테스트만 다시 실패하는 것을 확인했습니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.29로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.28과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.29로 갱신되어 있습니다
+
 ## [0.2.28] - 2026-10-04
 
 ### 수정
@@ -448,7 +466,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.28...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.29...HEAD
+[0.2.29]: https://github.com/hkjang/jikim/releases/tag/v0.2.29
 [0.2.28]: https://github.com/hkjang/jikim/releases/tag/v0.2.28
 [0.2.27]: https://github.com/hkjang/jikim/releases/tag/v0.2.27
 [0.2.26]: https://github.com/hkjang/jikim/releases/tag/v0.2.26
