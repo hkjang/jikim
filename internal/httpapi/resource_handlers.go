@@ -749,6 +749,14 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		// one would only ever be dormant; refuse it here where the operator
 		// can see why instead of letting it sit on silently.
 		if err := s.requireOIDCForMCPOAuth(r.Context(), input["oidc"]); err != nil {
+			// Only the configuration refusal is the administrator's to fix. A
+			// settings read that could not run is a storage fault, and reporting
+			// it here would both blame a correct screen and put the driver's own
+			// error text — DSN and SQLSTATE — in the response body.
+			if !errors.Is(err, errMCPOAuthNeedsOIDC) {
+				s.storeError(w, r, err)
+				return
+			}
 			writeError(w, r, http.StatusBadRequest, "mcp_oauth_requires_oidc", err.Error())
 			return
 		}

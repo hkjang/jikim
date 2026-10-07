@@ -384,11 +384,17 @@ func (w *mcpChallengeWriter) Flush() {
 
 func (w *mcpChallengeWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
+// errMCPOAuthNeedsOIDC marks the one refusal that is about the configuration:
+// the switch was turned on while the OIDC sign-in that verifies its tokens is
+// not set up. A settings read that could not run is a different cause — it says
+// nothing about how SSO is configured — and must not be reported as this one.
+var errMCPOAuthNeedsOIDC = errors.New("MCP SSO(OAuth)를 켜려면 Keycloak OIDC 연결이 켜져 있고 Issuer URL이 있어야 합니다")
+
 // requireOIDCForMCPOAuth checks, at save time, that the OIDC sign-in the
 // tokens will be verified against is on: the values being saved alongside
 // when the same request carries them, the stored ones otherwise.
 func (s *Server) requireOIDCForMCPOAuth(ctx context.Context, incoming map[string]any) error {
-	cfg, err := s.store.OIDCConfig(ctx)
+	cfg, err := s.loadOIDCConfig(ctx)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
@@ -402,7 +408,7 @@ func (s *Server) requireOIDCForMCPOAuth(ctx context.Context, incoming map[string
 		}
 	}
 	if !enabled || strings.TrimSpace(issuer) == "" {
-		return errors.New("MCP SSO(OAuth)를 켜려면 Keycloak OIDC 연결이 켜져 있고 Issuer URL이 있어야 합니다")
+		return errMCPOAuthNeedsOIDC
 	}
 	return nil
 }
