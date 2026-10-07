@@ -9,6 +9,24 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.31] - 2026-10-08
+
+### 수정
+
+- MCP SSO(OAuth)를 켜는 설정 저장이 OIDC 설정 읽기 실패를 "MCP SSO(OAuth)를 켜려면 Keycloak OIDC 연결이 켜져 있고 Issuer URL이 있어야 합니다"로 보고하던 오류 수정. `updateSettings`가 저장 시점 검사의 **모든** 오류를 `400` `mcp_oauth_requires_oidc`로 내보내면서 메시지에 오류 원문을 그대로 실어, PostgreSQL이 흔들리는 동안 관리자는 이미 올바른 설정 화면으로 되돌려 보내졌고 **pgx 드라이버 원문(DSN·`SQLSTATE`)이 응답 본문의 message로 그대로 나갔습니다.** 저장소가 다른 경로에서는 마스킹으로 막아 둔 바로 그 누출입니다. 이제 저장소 장애는 `500` `internal_error`와 마스킹된 문구로 구분해 보고하고 ERROR 로그를 한 줄 남깁니다
+- 거절 동작은 종전과 같습니다. OIDC 설정을 한 번도 저장하지 않은 경우(`store.ErrNotFound`), OIDC를 끈 경우, 켰지만 Issuer URL이 빈 경우는 모두 여전히 `400` `mcp_oauth_requires_oidc`이며 상태 코드와 code, 한국어 문구는 바이트 단위로 그대로입니다. 저장 시점 검사의 "같은 요청에 담겨 온 값 우선" 판정과 MCP 리소스 식별자 결정 순서, `WWW-Authenticate` 범위는 손대지 않았습니다
+
+### 변경
+
+- 설정 거절 하나만 표시하는 패키지 수준 sentinel을 두고, 핸들러가 `errors.Is`로 나머지를 같은 패키지가 이미 쓰는 저장소 오류 보고 경로로 넘깁니다. 오류 문구로 분기하지 않습니다
+- 저장 시점 검사가 저장소를 직접 부르던 한 줄을 같은 패키지의 기존 설정 로더 seam으로 바꿨습니다. nil 폴백이 같은 저장소 호출로 접히므로 동작은 종전과 같으며, 저장소 없이도 이 경로를 요청 왕복으로 검증할 수 있게 했습니다
+- 회귀 테스트를 추가했습니다. 실제 라우트 래퍼(request ID와 `admin` 역할 검사)를 거친 요청 왕복으로 저장소 장애 1개와 거절 3개, 모두 4개 경우의 상태 코드와 code를 고정합니다. `500` 응답 본문에 DSN·호스트명·`SQLSTATE`가 새지 않고 ERROR 로그가 `error`와 `request_id`를 담아 정확히 한 줄 남는 것까지 확인합니다. 수정 전 저장소 장애 1개 실패, 수정 후 4개 통과, 분기 쪼개기를 원복하면 같은 1개가 같은 메시지로 다시 실패하는 것을 확인했습니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.31로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.30과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 지금까지 쓰던 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 다시 구울 수 없었고, 다른 템플릿으로 바꿔 굽는 대신 기존 파일을 그대로 두었습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.31로 갱신되어 있습니다
+
 ## [0.2.30] - 2026-10-06
 
 ### 수정
@@ -483,7 +501,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.30...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.31...HEAD
+[0.2.31]: https://github.com/hkjang/jikim/releases/tag/v0.2.31
 [0.2.30]: https://github.com/hkjang/jikim/releases/tag/v0.2.30
 [0.2.29]: https://github.com/hkjang/jikim/releases/tag/v0.2.29
 [0.2.28]: https://github.com/hkjang/jikim/releases/tag/v0.2.28
