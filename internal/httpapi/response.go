@@ -53,12 +53,17 @@ func parsePage(r *http.Request) (int, int) {
 }
 
 func fmtSscanf(value string, dst *int) (int, error) {
+	const maxInt = int(^uint(0) >> 1)
 	var n int
 	for _, c := range value {
 		if c < '0' || c > '9' {
 			return 0, errors.New("number")
 		}
-		n = n*10 + int(c-'0')
+		digit := int(c - '0')
+		if n > (maxInt-digit)/10 {
+			return 0, errors.New("number out of range")
+		}
+		n = n*10 + digit
 	}
 	*dst = n
 	return 1, nil

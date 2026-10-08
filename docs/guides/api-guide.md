@@ -142,6 +142,8 @@ curl --fail 'https://jikim.example/v1/sys/health'
 
 `limit`과 `offset`에는 음수가 아닌 정수만 사용하십시오. 대량 데이터는 작은 페이지로 나누고 응답에 Secret 평문이 포함되는지 확인한 뒤 로그 정책을 정합니다.
 
+숫자 형식이 잘못되었거나 서버의 정수 범위를 넘는 값은 해당 항목의 기본값(`limit=50`, `offset=0`)으로 처리합니다. 다른 항목의 유효한 값은 그대로 적용합니다.
+
 ## AI 스트리밍
 
 AI 요청은 Server-Sent Events(SSE)를 기본으로 합니다.
