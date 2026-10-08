@@ -9,6 +9,23 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.33] - 2026-10-08
+
+### 수정
+
+- 목록 API의 큰 `limit`·`offset`이 정수 범위를 넘으면서 작은 양수로 감겨, 기본 페이지 대신 항목이 줄거나 첫 항목을 건너뛰던 오류 수정. 십진수 누적 전에 `int` 범위를 검사해 범위 초과 입력은 기존 기본값(`limit=50`, `offset=0`)으로 처리합니다
+- 기존 숫자 문법, 정상값 처리와 기본값을 유지합니다. 페이지 크기 상한이나 목록 API의 인가·정렬 계약은 변경하지 않았습니다
+
+### 변경
+
+- 파서 경계 단위 테스트 12개와 실제 `New` → 인증·미들웨어·라우트 → PostgreSQL → 최종 HTTP 애플리케이션 목록을 검증하는 통합 테스트 6개를 추가했습니다. 구현 단계에서 단위 3개·통합 4개의 수정 전 실패와 수정 후 통과를 확인했고, 범위 검사만 제거하면 같은 7개가 다시 실패하는 것도 확인했습니다
+- 통합 테스트는 폐기 가능한 PostgreSQL의 `JIKIM_TEST_POSTGRES_DSN`과 `CREATE SCHEMA` 권한이 필요하며, 미설정 시 건너뜁니다. 실행마다 고유 스키마를 만들고 정리합니다
+
+### 문서
+
+- API 가이드에 범위 초과 페이지 인자의 기본값 복귀를 명시하고 문서 프로파일을 v0.2.33으로 갱신했습니다. 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.32와 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 재생성하지 않았으며, 본문 Markdown은 v0.2.33으로 갱신했습니다
+
 ## [0.2.32] - 2026-10-08
 
 ### 수정
@@ -518,7 +535,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.32...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.33...HEAD
+[0.2.33]: https://github.com/hkjang/jikim/releases/tag/v0.2.33
 [0.2.32]: https://github.com/hkjang/jikim/releases/tag/v0.2.32
 [0.2.31]: https://github.com/hkjang/jikim/releases/tag/v0.2.31
 [0.2.30]: https://github.com/hkjang/jikim/releases/tag/v0.2.30
