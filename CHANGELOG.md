@@ -9,6 +9,23 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.32] - 2026-10-08
+
+### 수정
+
+- 추적 기능을 켠 상태에서 8192바이트를 초과한 CSP 리포트가 앞부분의 유효한 JSON만으로 기록되던 오류 수정. 최대 8193바이트를 읽고 파싱 전에 길이를 검사해, 공백 패딩이나 잘린 뒷부분이 있는 초과 본문을 기록하지 않습니다
+- 정상 리포트와 정확히 8192바이트인 리포트는 계속 수용하며, 응답은 기존과 같은 `204`와 빈 본문입니다. 추적 비활성화·설정 조회 실패 시 기록하지 않는 설정 gate도 유지합니다
+
+### 변경
+
+- 실제 `Server.routes`의 POST → 실제 Recorder → 인증된 관리자 GET 경계 회귀 테스트 10개를 추가했습니다. 알려진 본문 길이와 알 수 없는 길이(`ContentLength=-1`) 각각에서 정상·8192·8193·9216바이트 및 8192바이트 뒤 잘못된 문자를 검증합니다. 초과 6개는 수정 전 실패·수정 후 통과했으며, 수정 두 줄을 되돌리면 같은 6개가 다시 실패하는 것도 확인했습니다
+- 이번 변경은 CSP 리포트 본문 상한 검증입니다. 속도 제한이나 동일 출처 검증을 추가하지 않았으며, DoS 방어 전반을 해결하는 변경은 아닙니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.32로 갱신했으며, 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.31과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 기존 파일을 유지했습니다. 본문 Markdown(`docs/USER_GUIDE.md`, `docs/ADMIN_GUIDE.md`)은 v0.2.32로 갱신되어 있습니다
+
 ## [0.2.31] - 2026-10-08
 
 ### 수정
@@ -501,7 +518,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.31...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.32...HEAD
+[0.2.32]: https://github.com/hkjang/jikim/releases/tag/v0.2.32
 [0.2.31]: https://github.com/hkjang/jikim/releases/tag/v0.2.31
 [0.2.30]: https://github.com/hkjang/jikim/releases/tag/v0.2.30
 [0.2.29]: https://github.com/hkjang/jikim/releases/tag/v0.2.29
