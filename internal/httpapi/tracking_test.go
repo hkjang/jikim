@@ -308,6 +308,62 @@ func TestPolicyReportsAreOnlyRecordedWhileTrackingIsOn(t *testing.T) {
 	})
 }
 
+func TestCSPReportBodySizeBoundary(t *testing.T) {
+	const report = `{"csp-report":{"blocked-uri":"https://pixel.corp.example/p.gif","effective-directive":"img-src","document-uri":"https://jikim.example/dashboard"}}`
+	boundary := report + strings.Repeat(" ", maxCSPReportBytes-len(report))
+	for _, tc := range []struct {
+		name      string
+		body      string
+		wantItems int
+	}{
+		{"normal report", report, 1},
+		{"exactly 8192 bytes", boundary, 1},
+		{"8193 bytes of valid JSON", boundary + " ", 0},
+		{"larger valid JSON", boundary + strings.Repeat(" ", 1024), 0},
+		{"invalid suffix after 8192 bytes", boundary + "x", 0},
+	} {
+		for _, unknownLength := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/unknown_length=%t", tc.name, unknownLength), func(t *testing.T) {
+				server, handler := trackingServer(t, momentoConfig(), nil)
+				request := httptest.NewRequest(http.MethodPost, cspReportPath, strings.NewReader(tc.body))
+				request.Header.Set("Content-Type", "application/csp-report")
+				if unknownLength {
+					request.ContentLength = -1
+				}
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				if response.Code != http.StatusNoContent || response.Body.Len() != 0 {
+					t.Fatalf("report status=%d body=%s", response.Code, response.Body.String())
+				}
+
+				server.sessionResolver = func(context.Context, string) (model.Session, error) {
+					return model.Session{User: model.User{ID: "u1", Username: "admin", Role: "admin"}}, nil
+				}
+				listed := httptest.NewRecorder()
+				handler.ServeHTTP(listed, tokenRequest(http.MethodGet, "/api/v1/tracking/violations"))
+				if listed.Code != http.StatusOK {
+					t.Fatalf("list status=%d body=%s", listed.Code, listed.Body.String())
+				}
+				var result struct {
+					Data []tracking.Violation `json:"data"`
+				}
+				if err := json.Unmarshal(listed.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				if len(result.Data) != tc.wantItems {
+					t.Fatalf("recorded reports=%d, want %d (body bytes=%d, content length=%d)", len(result.Data), tc.wantItems, len(tc.body), request.ContentLength)
+				}
+				if tc.wantItems == 1 {
+					item := result.Data[0]
+					if item.Count != 1 || item.Origin != "https://pixel.corp.example" || item.Directive != "img-src" {
+						t.Fatalf("unexpected recorded report: %+v", item)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestAllowingAnOriginRefusesWhatCannotBeAllowed(t *testing.T) {
 	server, handler := trackingServer(t, momentoConfig(), nil)
 	server.sessionResolver = func(context.Context, string) (model.Session, error) {

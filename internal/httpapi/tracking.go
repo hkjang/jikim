@@ -146,8 +146,8 @@ func (s *Server) receiveCSPReport(w http.ResponseWriter, r *http.Request) {
 	if !s.trackingConfig(r.Context()).ReportingActive() {
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxCSPReportBytes))
-	if err != nil || len(body) == 0 {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxCSPReportBytes+1))
+	if err != nil || len(body) == 0 || len(body) > maxCSPReportBytes {
 		return
 	}
 	var report cspReport
