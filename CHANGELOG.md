@@ -9,6 +9,25 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.36] - 2026-10-15
+
+### 수정
+
+- CSP 리포트의 `page` 주소를 512바이트로 자를 때 다중 바이트 문자가 쪼개져, 관리자 목록에 주소의 마지막 글자가 깨져 보이던 오류 수정. `Recorder.Record` 가 `page = page[:512]` 로 **바이트** 단위로만 잘라 512번째 바이트가 rune 중간에 떨어지면 잘못된 UTF-8 이 기록되고, 관리자 목록(`listTrackingViolations` → `json.Marshal`)이 깨진 바이트마다 U+FFFD 를 하나씩 넣어 `가가가가` 로 끝나는 주소가 `가가��` 로 보였습니다(응답의 `page` 도 510바이트에서 516바이트로 늘었습니다). 자른 뒤 꼬리의 **불완전한** 시퀀스만 떼어냅니다
+- 512**바이트** 상한은 그대로입니다. 이 상한은 무인증 엔드포인트가 들고 있을 수 있는 메모리를 묶는 값이므로 글자 수 기준으로 바꾸지 않았습니다. 떼어내는 조건은 `utf8.DecodeLastRuneInString` 의 `size <= 1` 이며, 주소가 **진짜** 로 담고 있는 U+FFFD 는 `size == 3` 으로 돌아오므로 보존합니다. 치환 문자를 끼워 넣는 `strings.ToValidUTF8` 은 쓰지 않았습니다
+- 512바이트 미만인 주소, 정확히 512바이트인 주소, ASCII 초과 주소의 처리는 이전과 같습니다. `MaxViolations` 상한, 오래된 항목 축출, 목록 정렬과 추적 비활성화 gate 는 변경하지 않았습니다
+
+### 변경
+
+- 실제 `routes` → `POST /api/v1/tracking/report` → 실제 `Recorder` → 인증된 `GET /api/v1/tracking/violations` 왕복에서 최종 응답의 `page` 를 단정하는 서브테스트 5개를 추가했습니다. 결함 1개(쪼개지는 주소)는 수정 전 `listed page is 516 bytes ending "가가��"` 로 실패하고 기존 계약 4개(512 미만 비ASCII·정확히 512 경계 일치·ASCII 초과·진짜 U+FFFD 포함)는 처음부터 통과하며, 수정한 루프와 `unicode/utf8` import 를 되돌리면 같은 1개가 같은 메시지로 다시 실패합니다
+- 단정은 U+FFFD 개수가 아니라 기대 문자열 전체 비교로 합니다. 기존 `TestCSPReportBodySizeBoundary` 와 `TestPolicyReportsAreRecordedOnceAndListedForAdministrators` 는 손대지 않고 통과합니다
+- 관리 화면(`web/src`)이 `page` 를 어떻게 렌더링하는지는 이번 변경에서 확인하지 않았습니다. 검증 범위는 서버 JSON 응답까지입니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.36으로 갱신했습니다. 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.35와 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 재생성하지 않았으며, 본문 Markdown은 v0.2.36으로 갱신했습니다
+
 ## [0.2.35] - 2026-10-15
 
 ### 수정
@@ -571,7 +590,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.35...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.36...HEAD
+[0.2.36]: https://github.com/hkjang/jikim/releases/tag/v0.2.36
 [0.2.35]: https://github.com/hkjang/jikim/releases/tag/v0.2.35
 [0.2.34]: https://github.com/hkjang/jikim/releases/tag/v0.2.34
 [0.2.33]: https://github.com/hkjang/jikim/releases/tag/v0.2.33
