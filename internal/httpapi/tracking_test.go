@@ -437,6 +437,70 @@ func TestMomentoProxyForwardsWithoutCredentials(t *testing.T) {
 	}
 }
 
+// A browser that escapes a path segment means that segment, not a path
+// boundary: %2F is a slash inside one name and %2E%2E%2F is three literal
+// characters. If the proxy hands the collector the decoded form, the request
+// leaves the path prefix the operator configured in momento_url.
+func TestMomentoProxyPreservesEscapedPathSegments(t *testing.T) {
+	var seenRequestURI string
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenRequestURI = r.RequestURI
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer collector.Close()
+	config := tracking.ReadConfig(map[string]any{
+		"enabled": true, "provider": "momento", "allow_insecure_http": true,
+		"momento_url": collector.URL + "/base/", "momento_site_id": "jikim",
+	})
+	server, handler := trackingServer(t, config, nil)
+	server.httpClient = http.DefaultClient
+
+	for _, tc := range []struct {
+		name, inbound, want string
+	}{
+		{"escaped slash stays inside one segment", "/momento/collect/a%2Fb", "/base/collect/a%2Fb"},
+		{"escaped dot-dot cannot climb out of the prefix", "/momento/collect/%2E%2E%2F%2E%2E%2Fadmin", "/base/collect/%2E%2E%2F%2E%2E%2Fadmin"},
+		{"a plain path is forwarded byte for byte", "/momento/collect/v1/events", "/base/collect/v1/events"},
+		{"the query string is untouched", "/momento/collect?site=a%2Fb&q=1", "/base/collect?site=a%2Fb&q=1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seenRequestURI = ""
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.inbound, nil))
+			if response.Code != http.StatusAccepted {
+				t.Fatalf("%s status=%d body=%s", tc.inbound, response.Code, response.Body.String())
+			}
+			if seenRequestURI != tc.want {
+				t.Fatalf("collector saw %q, want %q (inbound %s)", seenRequestURI, tc.want, tc.inbound)
+			}
+		})
+	}
+
+	// ServeMux matches the route pattern against the decoded path, so a request
+	// whose prefix is itself percent-encoded reaches this handler. Trimming the
+	// literal prefix off such a path is a no-op on the escaped form, which makes
+	// RawPath an invalid encoding of Path and silently gives the collector the
+	// decoded path again. These must never be forwarded.
+	for _, tc := range []struct {
+		name, inbound string
+	}{
+		{"an encoded prefix letter is not the proxy route", "/m%6Fmento/collect/%2E%2E%2F%2E%2E%2Fadmin"},
+		{"an encoded leading prefix letter is not the proxy route", "/%6Domento/collect/a%2Fb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seenRequestURI = ""
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.inbound, nil))
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("%s status=%d body=%s", tc.inbound, response.Code, response.Body.String())
+			}
+			if seenRequestURI != "" {
+				t.Fatalf("collector saw %q for %s, want no request at all", seenRequestURI, tc.inbound)
+			}
+		})
+	}
+}
+
 func TestTrackingViolationAllowanceMatchesDirectivePolicy(t *testing.T) {
 	for _, tc := range []struct {
 		name, origin, directive, policyDirective, source string
