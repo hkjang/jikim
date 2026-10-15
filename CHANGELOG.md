@@ -9,6 +9,23 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.34] - 2026-10-15
+
+### 수정
+
+- Dependabot 의 `@mantine/core` 업데이트 잡이 실패하던 오류 수정. `web/package-lock.json` 에서 `@mantine/core`·`@mantine/hooks`·`@mantine/notifications` 는 서로를 정확한 버전으로 peer 요구하므로, 한 패키지만 단독으로 올리면 npm 이 의존성을 해석하지 못합니다(`ERESOLVE`). `.github/dependabot.yml` 의 npm `/web` 항목에 `mantine`·`react`·`react-types` 묶음을 추가해 peer 로 묶인 패키지가 한 PR 에서 함께 올라갑니다
+- 버전 고정 해제, `--legacy-peer-deps` 추가 같은 검사 완화는 하지 않았습니다. 의존성을 실제로 올리는 변경은 포함하지 않으며, `gomod`·`github-actions`·`docker` 생태계 설정은 그대로입니다
+
+### 변경
+
+- 락파일에서 peer 로 버전이 묶인 묶음을 직접 뽑아 `.github/dependabot.yml` 의 group 누락을 거절하는 `scripts/verify-dependabot-groups.mjs` 를 추가하고 `scripts/verify.sh` 에 연결했습니다. 수정 전에는 세 묶음을 모두 지적하며 실패하고, 수정 후에는 통과합니다. `npm install <묶음 전체> --package-lock-only` 가 세 묶음 모두 해석되는 것과 단건 업데이트가 실패하는 것을 실제 레지스트리로 확인했습니다
+- 이 검사는 네트워크, 데이터베이스, `node_modules` 없이 `web/package-lock.json` 과 `.github/dependabot.yml` 만 읽습니다. `.github/dependabot.yml` 의 2칸 들여쓰기 블록 스타일만 해석하므로, flow 스타일(`patterns: [...]`)로 바꾸면 통과가 아니라 실패로 처리됩니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.34로 갱신했습니다. 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.33과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 재생성하지 않았으며, 본문 Markdown은 v0.2.34로 갱신했습니다
+
 ## [0.2.33] - 2026-10-08
 
 ### 수정
@@ -535,7 +552,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.33...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.34...HEAD
+[0.2.34]: https://github.com/hkjang/jikim/releases/tag/v0.2.34
 [0.2.33]: https://github.com/hkjang/jikim/releases/tag/v0.2.33
 [0.2.32]: https://github.com/hkjang/jikim/releases/tag/v0.2.32
 [0.2.31]: https://github.com/hkjang/jikim/releases/tag/v0.2.31
