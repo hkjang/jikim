@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // MaxViolations bounds the recorder. A blocked request repeats on every page
@@ -56,7 +57,19 @@ func (r *Recorder) Record(blockedURI, directive, page string) {
 	}
 	page = strings.TrimSpace(page)
 	if len(page) > 512 {
+		// The cap is in bytes so the memory this unauthenticated endpoint can
+		// hold stays fixed, but cutting mid-character would store invalid UTF-8
+		// and the administrator's list would show the address with its last
+		// character replaced. Drop only the incomplete trailing sequence; a
+		// U+FFFD the address really contains decodes with a size of 3 and stays.
 		page = page[:512]
+		for len(page) > 0 {
+			if character, size := utf8.DecodeLastRuneInString(page); character == utf8.RuneError && size <= 1 {
+				page = page[:len(page)-1]
+				continue
+			}
+			break
+		}
 	}
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
