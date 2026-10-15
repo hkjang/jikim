@@ -220,6 +220,16 @@ func (s *Server) momentoProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "허용되지 않은 요청 방식입니다")
 		return
 	}
+	// The route pattern is matched on the decoded path, so the prefix itself can
+	// arrive percent-encoded (/m%6Fmento/...). Trimming the prefix from such a
+	// path leaves RawPath an invalid encoding of Path, and Go then quietly falls
+	// back to re-escaping the decoded path — the escape loss this proxy must
+	// avoid. The snippet only ever emits the literal prefix, so refuse the rest.
+	escapedPath := r.URL.EscapedPath()
+	if !strings.HasPrefix(escapedPath, tracking.MomentoProxyPrefix+"/") {
+		writeError(w, r, http.StatusNotFound, "not_found", "요청한 경로를 찾을 수 없습니다")
+		return
+	}
 	target, err := url.Parse(strings.TrimRight(strings.TrimSpace(config.MomentoURL), "/"))
 	if err != nil || target.Host == "" {
 		writeError(w, r, http.StatusBadGateway, "bad_gateway", "Momento 수집기 주소가 올바르지 않습니다")
@@ -231,8 +241,10 @@ func (s *Server) momentoProxy(w http.ResponseWriter, r *http.Request) {
 			// the collector prefix without turning a browser's %2F into a real
 			// path separator: a decoded path would reach the collector as a
 			// different path, and %2E%2E%2F would leave the configured prefix.
+			// Both forms carry the literal prefix (checked above), so the pair
+			// stays a valid Path/RawPath pair after trimming.
 			request.Out.URL.Path = strings.TrimPrefix(r.URL.Path, tracking.MomentoProxyPrefix)
-			request.Out.URL.RawPath = strings.TrimPrefix(r.URL.EscapedPath(), tracking.MomentoProxyPrefix)
+			request.Out.URL.RawPath = strings.TrimPrefix(escapedPath, tracking.MomentoProxyPrefix)
 			request.SetURL(target)
 			request.SetXForwarded()
 			request.Out.Host = target.Host

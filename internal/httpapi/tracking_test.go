@@ -475,6 +475,30 @@ func TestMomentoProxyPreservesEscapedPathSegments(t *testing.T) {
 			}
 		})
 	}
+
+	// ServeMux matches the route pattern against the decoded path, so a request
+	// whose prefix is itself percent-encoded reaches this handler. Trimming the
+	// literal prefix off such a path is a no-op on the escaped form, which makes
+	// RawPath an invalid encoding of Path and silently gives the collector the
+	// decoded path again. These must never be forwarded.
+	for _, tc := range []struct {
+		name, inbound string
+	}{
+		{"an encoded prefix letter is not the proxy route", "/m%6Fmento/collect/%2E%2E%2F%2E%2E%2Fadmin"},
+		{"an encoded leading prefix letter is not the proxy route", "/%6Domento/collect/a%2Fb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seenRequestURI = ""
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.inbound, nil))
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("%s status=%d body=%s", tc.inbound, response.Code, response.Body.String())
+			}
+			if seenRequestURI != "" {
+				t.Fatalf("collector saw %q for %s, want no request at all", seenRequestURI, tc.inbound)
+			}
+		})
+	}
 }
 
 func TestTrackingViolationAllowanceMatchesDirectivePolicy(t *testing.T) {
