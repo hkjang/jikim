@@ -9,6 +9,25 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.37] - 2026-10-15
+
+### 수정
+
+- OpenBao Transit 단건 `encrypt`·`decrypt` 가 `plaintext`·`ciphertext` 필드 누락을 명시된 빈 문자열과 같게 처리하던 오류 수정. `baoTransitEncrypt`·`baoTransitDecrypt` 의 입력 구조체가 단건 필드를 `string` 으로 받아 필드가 **아예 없는** 본문(`{}`·`{"reference":"a"}`)과 값이 `""` 인 본문을 구분하지 못했습니다. 그래서 encrypt 는 호출자가 주지 않은 빈 평문을 실제로 암호화해 `200` 과 `ciphertext` 를 돌려주었고, decrypt 는 `""` 를 저장소로 내려보내 batch 경로와 다른 메시지로 실패했습니다. 두 필드를 `*string` 으로 받고 nil 이면 batch 항목과 같은 판정으로 `400` 과 `missing plaintext to encrypt`·`missing ciphertext to decrypt` 를 돌려주며 저장소를 호출하지 않습니다
+- 값이 명시된 빈 문자열(`{"plaintext":""}`)은 OpenBao 와 같이 유효한 입력으로 남겼습니다. 누락 검사는 `input.BatchInput != nil` 분기 **뒤** 에 두었으므로, `batch_input` 이 있으면 단건 필드를 무시하는 기존 계약(상단 `plaintext`·`ciphertext` 없이 보내는 batch 요청)은 그대로 동작합니다
+- batch 경로의 per-item 판정, Transit mount·key 이름 제약, 권한 확인과 감사 기록, `vault:vN:` ciphertext 형식 해석은 변경하지 않았습니다. 단건 경로가 미지원 파라미터(`context`·`nonce`·`associated_data`·`key_version`)를 조용히 무시하는 동작도 이번 변경 범위가 아닙니다
+
+### 변경
+
+- 주입한 `transitEncryptor`·`transitDecryptor` seam 과 기존 하네스(`transitBatchRequest`·`allowAllTransit`·`decodeBatchResults`)로 핸들러를 직접 부르는 서브테스트 7개를 추가했습니다. 결함 3개(`{}` encrypt·`{"reference":"a"}` encrypt·`{}` decrypt)는 수정 전 `status=200 body={"data":{"ciphertext":"vault:v1:",...}}` 와 `status=200 body={"data":{"plaintext":"aGk="},...}` 로 실패하고, 기존 계약 4개(명시된 `""`·정상 평문·정상 ciphertext·상단 필드 없는 batch encrypt/decrypt)는 처음부터 통과합니다. 수정한 줄만 되돌리면 같은 3개가 같은 메시지로 다시 실패합니다
+- decrypt 누락의 수정 전 증상은 `ciphertext` 형식 오류가 아니라 `200` 입니다. seam 을 주입하면 저장소의 ciphertext 파서를 타지 않으므로, 누락 요청이 복호화기까지 내려가던 것이 응답에 그대로 드러납니다
+- 테스트는 이 파일의 관례대로 핸들러를 직접 호출하므로 `withBaoAuth` 토큰 미들웨어와 실제 `routes` 배선은 지나지 않으며, 실제 PostgreSQL 저장소 경로도 이번 검증 범위가 아닙니다
+
+### 문서
+
+- 호환성 프로파일의 Transit 제한 계약에 단건 필드 누락 판정을 기록했습니다. 문서 프로파일을 v0.2.37으로 갱신했습니다. 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.36과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 재생성하지 않았으며, 본문 Markdown은 v0.2.37으로 갱신했습니다
+
 ## [0.2.36] - 2026-10-15
 
 ### 수정
@@ -590,7 +609,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.36...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.37...HEAD
+[0.2.37]: https://github.com/hkjang/jikim/releases/tag/v0.2.37
 [0.2.36]: https://github.com/hkjang/jikim/releases/tag/v0.2.36
 [0.2.35]: https://github.com/hkjang/jikim/releases/tag/v0.2.35
 [0.2.34]: https://github.com/hkjang/jikim/releases/tag/v0.2.34
