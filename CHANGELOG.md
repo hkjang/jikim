@@ -9,6 +9,25 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.38] - 2026-10-15
+
+### 수정
+
+- OpenBao Transit 단건 `encrypt`·`decrypt` 가 구현하지 않는 파라미터(`context`·`nonce`·`associated_data`·`key_version`)를 조용히 무시하던 오류 수정. batch 경로는 `baoTransitBatchItem.unsupportedParameter()` 로 이 네 파라미터를 항목별 `error` 로 거절하는데, 단건 경로의 입력 구조체에는 네 필드가 아예 없고 `decodeBaoJSON` 이 미지의 필드를 허용하므로 `{"plaintext":"aGk=","context":"Y3R4"}` 가 context 를 버린 채 `200` 과 `ciphertext` 를 받았습니다. 같은 서버의 두 경로가 정반대 계약을 가졌고, 파생 컨텍스트나 key 버전을 요청한 호출자가 그것 없이 만들어진 더 약한 암호문을 성공으로 받았습니다
+- 두 단건 입력 구조체에 `baoTransitBatchItem` 을 익명 임베딩해 네 필드가 평평하게 디코드되게 하고, batch 와 **글자까지 같은** `unsupported transit parameter: <이름>` 을 `400` 으로 돌려주며 저장소를 호출하지 않습니다. 검사는 `input.BatchInput != nil` 분기 **뒤** 에 두었으므로 `batch_input` 이 있으면 단건 필드를 무시하는 기존 계약은 그대로이고, 필드 누락 검사 **앞** 에 두어 batch 루프의 판정 순서와 맞췄습니다(`{"context":"Y3R4"}` 가 두 경로에서 같은 메시지를 받습니다)
+- 빈 문자열과 `key_version: 0` 은 `unsupportedParameter()` 가 이미 걸러내므로 "요청하지 않음" 으로 보아 정상 처리합니다. batch 경로의 항목별 판정, batch 요청이 상단 파라미터를 무시하는 동작, Transit mount·key 이름 제약, 권한 확인과 감사 기록, `vault:vN:` ciphertext 형식 해석은 변경하지 않았습니다
+
+### 변경
+
+- 이 파일의 관례대로 기존 하네스(`transitBatchRequest`·`allowAllTransit`·`decodeBaoData`·`decodeBatchResults`)로 핸들러를 직접 부르는 서브테스트 20개를 추가했습니다. 결함 10개(encrypt 5·decrypt 5)는 수정 전 `status=200 body={"data":{"ciphertext":"vault:v1:aGk=","key_version":1},...}` 와 `status=200 body={"data":{"plaintext":"aGk="},...}` 로 실패하고, 기존 계약 10개(빈 문자열·`key_version: 0` 4개, batch 가 상단 파라미터를 무시하는 2경로, 기존 누락·왕복 테스트)는 처음부터 통과합니다
+- 미지원 파라미터와 필드 누락이 함께 온 요청이 `unsupported transit parameter: context` 를 먼저 받는 것까지 단정하며, "암호화기·복호화기가 **불리지 않는다**" 는 seam 안의 호출 카운터로 확인합니다. 두 검사 블록만 되돌리면(임베딩은 남긴 채) 같은 10개가 다시 실패하므로, 결함을 고친 것이 임베딩이 아니라 두 검사임이 분리 확인됩니다
+- 임베딩의 부수효과로 encrypt 단건이 `ciphertext`·`reference` 를, decrypt 단건이 `plaintext` 를 디코드하지만 둘 다 읽지 않으므로 관찰 가능한 변화는 없습니다(이전에도 `decodeBaoJSON` 이 미지의 필드로 받아 무시했습니다). 테스트는 핸들러를 직접 호출하므로 `withBaoAuth` 토큰 미들웨어와 실제 `routes` 배선은 지나지 않으며, 실제 PostgreSQL 저장소 경로도 이번 검증 범위가 아닙니다
+
+### 문서
+
+- 호환성 프로파일의 Transit 제한 계약에 단건 미지원 파라미터 판정을 한 문단으로 기록하고, batch 항목 설명에 단건 경로가 같은 문자열을 `400` 으로 돌려준다는 것을 덧붙였습니다. 문서 프로파일을 v0.2.38으로 갱신했습니다. 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.37과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 재생성하지 않았으며, 본문 Markdown은 v0.2.38으로 갱신했습니다
+
 ## [0.2.37] - 2026-10-15
 
 ### 수정
@@ -609,7 +628,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.37...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.38...HEAD
+[0.2.38]: https://github.com/hkjang/jikim/releases/tag/v0.2.38
 [0.2.37]: https://github.com/hkjang/jikim/releases/tag/v0.2.37
 [0.2.36]: https://github.com/hkjang/jikim/releases/tag/v0.2.36
 [0.2.35]: https://github.com/hkjang/jikim/releases/tag/v0.2.35
