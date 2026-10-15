@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hkjang/jikim/internal/model"
 	"github.com/hkjang/jikim/internal/tracking"
@@ -362,6 +363,110 @@ func TestCSPReportBodySizeBoundary(t *testing.T) {
 			})
 		}
 	}
+}
+
+// The recorded page address is capped at 512 bytes so an unauthenticated
+// endpoint cannot grow without bound, but the cap must fall on a character
+// boundary: a Korean or otherwise non-ASCII path cut mid-character leaves
+// invalid UTF-8, and the administrator reading the blocked-origins list to fix
+// a snippet is then shown a replacement character instead of the address.
+func TestRecordedPageIsTruncatedOnACharacterBoundary(t *testing.T) {
+	const prefix = "https://example.com/x" // 21 bytes
+	const slash = "https://example.com/"   // 20 bytes
+	for _, tc := range []struct {
+		name     string
+		page     string
+		wantPage string
+	}{
+		{
+			// 21 + 3*163 = 510, so byte 512 lands inside the 164th character.
+			name:     "multi-byte character split by the cap",
+			page:     prefix + strings.Repeat("가", 200),
+			wantPage: prefix + strings.Repeat("가", 163),
+		},
+		{
+			name:     "short non-ascii address is kept whole",
+			page:     prefix + strings.Repeat("가", 10),
+			wantPage: prefix + strings.Repeat("가", 10),
+		},
+		{
+			// 21 + 3*163 + 2 = 512 exactly, and 512 is a character boundary.
+			name:     "exactly 512 bytes ending on a boundary",
+			page:     prefix + strings.Repeat("가", 163) + "ab",
+			wantPage: prefix + strings.Repeat("가", 163) + "ab",
+		},
+		{
+			name:     "ascii address is cut at the same 512 bytes",
+			page:     prefix + strings.Repeat("a", 600),
+			wantPage: (prefix + strings.Repeat("a", 600))[:512],
+		},
+		{
+			// 20 + 3*164 = 512: the address really contains U+FFFD, so the cut
+			// leaves a complete character that must not be stripped as debris.
+			name:     "genuine replacement characters survive the cut",
+			page:     slash + strings.Repeat("�", 200),
+			wantPage: slash + strings.Repeat("�", 164),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server, handler := trackingServer(t, momentoConfig(), nil)
+			report, err := json.Marshal(map[string]any{"csp-report": map[string]any{
+				"blocked-uri":         "https://pixel.corp.example/p.gif",
+				"effective-directive": "img-src",
+				"document-uri":        tc.page,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(report) > maxCSPReportBytes {
+				t.Fatalf("report body is %d bytes, over the %d limit", len(report), maxCSPReportBytes)
+			}
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, cspReportPath, strings.NewReader(string(report)))
+			request.Header.Set("Content-Type", "application/csp-report")
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusNoContent || response.Body.Len() != 0 {
+				t.Fatalf("report status=%d body=%s", response.Code, response.Body.String())
+			}
+
+			server.sessionResolver = func(context.Context, string) (model.Session, error) {
+				return model.Session{User: model.User{ID: "u1", Username: "admin", Role: "admin"}}, nil
+			}
+			listed := httptest.NewRecorder()
+			handler.ServeHTTP(listed, tokenRequest(http.MethodGet, "/api/v1/tracking/violations"))
+			if listed.Code != http.StatusOK {
+				t.Fatalf("list status=%d body=%s", listed.Code, listed.Body.String())
+			}
+			var result struct {
+				Data []tracking.Violation `json:"data"`
+			}
+			if err := json.Unmarshal(listed.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Data) != 1 {
+				t.Fatalf("recorded reports=%d, want 1", len(result.Data))
+			}
+			got := result.Data[0].Page
+			if !utf8.ValidString(got) || len(got) > 512 || strings.ContainsRune(got, utf8.RuneError) != strings.ContainsRune(tc.wantPage, utf8.RuneError) {
+				t.Fatalf("listed page is %d bytes ending %q (valid utf8=%t), want %d bytes ending %q",
+					len(got), tailRunes(got, 4), utf8.ValidString(got), len(tc.wantPage), tailRunes(tc.wantPage, 4))
+			}
+			if got != tc.wantPage {
+				t.Fatalf("listed page is %d bytes ending %q, want %d bytes ending %q",
+					len(got), tailRunes(got, 4), len(tc.wantPage), tailRunes(tc.wantPage, 4))
+			}
+		})
+	}
+}
+
+// tailRunes names the last runes of an address so a failure reads as the
+// characters an administrator would see rather than as a wall of bytes.
+func tailRunes(value string, count int) string {
+	runes := []rune(value)
+	if len(runes) > count {
+		runes = runes[len(runes)-count:]
+	}
+	return string(runes)
 }
 
 func TestAllowingAnOriginRefusesWhatCannotBeAllowed(t *testing.T) {
