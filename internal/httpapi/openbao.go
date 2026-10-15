@@ -653,7 +653,7 @@ func baoTransitFailure(err error, operation string) (int, string) {
 
 func (s *Server) baoTransitEncrypt(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Plaintext  string                 `json:"plaintext"`
+		Plaintext  *string                `json:"plaintext"`
 		BatchInput *[]baoTransitBatchItem `json:"batch_input"`
 	}
 	if !decodeBaoJSON(w, r, &input) {
@@ -669,7 +669,15 @@ func (s *Server) baoTransitEncrypt(w http.ResponseWriter, r *http.Request) {
 		s.baoTransitEncryptBatch(w, r, key, session.User.ID, *input.BatchInput)
 		return
 	}
-	ciphertext, err := s.encryptTransit(r.Context(), key, input.Plaintext, session.User.ID)
+	// An absent plaintext is not an empty plaintext: the single-item path uses
+	// the same contract as batch_input instead of encrypting "" for a caller
+	// that never asked for it. The check stays behind the batch branch because
+	// batch_input ignores the single-item fields.
+	if input.Plaintext == nil {
+		baoError(w, http.StatusBadRequest, "missing plaintext to encrypt")
+		return
+	}
+	ciphertext, err := s.encryptTransit(r.Context(), key, *input.Plaintext, session.User.ID)
 	if err != nil {
 		status, message := baoTransitFailure(err, "encrypt plaintext")
 		baoError(w, status, message)
@@ -724,7 +732,7 @@ func (s *Server) baoTransitEncryptBatch(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) baoTransitDecrypt(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Ciphertext string                 `json:"ciphertext"`
+		Ciphertext *string                `json:"ciphertext"`
 		BatchInput *[]baoTransitBatchItem `json:"batch_input"`
 	}
 	if !decodeBaoJSON(w, r, &input) {
@@ -740,7 +748,13 @@ func (s *Server) baoTransitDecrypt(w http.ResponseWriter, r *http.Request) {
 		s.baoTransitDecryptBatch(w, r, key, session.User, *input.BatchInput)
 		return
 	}
-	plaintext, err := s.decryptTransit(r.Context(), key, input.Ciphertext)
+	// As with encrypt, an absent ciphertext is refused here rather than handed
+	// to the store as "". The check stays behind the batch branch.
+	if input.Ciphertext == nil {
+		baoError(w, http.StatusBadRequest, "missing ciphertext to decrypt")
+		return
+	}
+	plaintext, err := s.decryptTransit(r.Context(), key, *input.Ciphertext)
 	if err != nil {
 		status, message := baoTransitFailure(err, "decrypt ciphertext")
 		baoError(w, status, message)

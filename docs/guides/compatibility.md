@@ -120,6 +120,8 @@ mount 이름은 `transit`으로 고정되며 key는 `/`를 포함할 수 없습�
 | `POST`·`PUT /v1/transit/decrypt/{key}` | `{"ciphertext":"vault:vN:..."}` | `data.plaintext` 반환 |
 | `POST`·`PUT /v1/transit/decrypt/{key}` | `{"batch_input":[{"ciphertext":"vault:vN:..."}]}` | 항목 순서를 유지한 `data.batch_results` 반환 |
 
+단건 요청에 `plaintext`·`ciphertext` 필드가 아예 없으면 batch 항목과 같은 판정으로 `400`과 `missing plaintext to encrypt`·`missing ciphertext to decrypt`를 돌려주며 저장소를 호출하지 않습니다. 값이 명시된 빈 문자열(`{"plaintext":""}`)은 유효한 입력입니다.
+
 `batch_input`이 있으면 단건 `plaintext`·`ciphertext` 필드는 무시합니다. batch 의미는 다음과 같습니다.
 
 - 각 결과는 입력과 같은 순서이며 성공 항목은 `ciphertext`·`key_version` 또는 `plaintext`를, 실패 항목은 `error` 문자열을 가집니다.
