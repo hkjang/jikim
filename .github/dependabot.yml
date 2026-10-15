@@ -10,6 +10,20 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # peerDependencies 로 버전이 묶인 패키지는 하나씩 올리면 npm 이 의존성을 해석하지
+    # 못해(ERESOLVE) 업데이트 잡이 실패한다. 한 PR 에서 함께 올린다.
+    groups:
+      mantine:
+        patterns:
+          - "@mantine/*"
+      react:
+        patterns:
+          - react
+          - react-dom
+      react-types:
+        patterns:
+          - "@types/react"
+          - "@types/react-dom"
   - package-ecosystem: github-actions
     directory: /
     schedule:

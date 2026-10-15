@@ -59,6 +59,7 @@ npm --prefix web run lint
 VITE_APP_VERSION="${VERSION}" npm --prefix web run build -- --logLevel=warn
 test -f web/dist/index.html
 node scripts/verify-docs.mjs
+node scripts/verify-dependabot-groups.mjs
 
 POSTGRES_DSN='postgres://user:pass@db:5432/jikim?sslmode=disable' \
 BOOTSTRAP_ADMIN='admin' \
