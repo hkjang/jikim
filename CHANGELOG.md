@@ -9,6 +9,25 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.35] - 2026-10-15
+
+### 수정
+
+- Momento 프록시가 브라우저가 한 세그먼트 안에서 escape 한 경로를 디코드해 수집기에 다른 경로로 전달하던 오류 수정. `momentoProxy` 가 이미 디코드된 `r.URL.Path` 로 바깥 경로를 조립하고 `RawPath` 를 비워, `/momento/collect/a%2Fb` 는 수집기에 `/base/collect/a/b` 로 도착했고 `/momento/collect/%2E%2E%2F%2E%2E%2Fadmin` 은 `/base/collect/../../admin` 이 되어 운영자가 `momento_url` 에 지정한 경로 접두사를 벗어났습니다. `Path` 와 `RawPath` 를 짝으로 넣고 경로 조립을 `SetURL` 에 맡겨 escape 한 형태가 그대로 전달됩니다
+- 라우트 패턴이 디코드된 경로로 매칭되어 접두사 자체가 percent-encoded 로 도착하는 요청(`/m%6Fmento/...`)은 404 로 거절합니다. 이런 경로에서 접두사를 떼면 `RawPath` 가 `Path` 의 유효한 인코딩이 아니게 되고 Go 가 조용히 디코드된 경로를 다시 escape 해, 이 프록시가 막아야 하는 escape 손실로 되돌아갑니다. 스니펫은 리터럴 접두사만 내보냅니다
+- escape 가 없는 경로는 이전과 같이 바이트 단위로 그대로 전달하며, 질의 문자열 보존, 추적 비활성화 gate, 요청 방식 허용 목록, 자격증명 헤더 제거, 본문 크기 제한과 타임아웃은 변경하지 않았습니다
+- 이 수정이 없앤 것은 jikim 쪽의 escape 손실이며, 경로 접두사 봉쇄가 완결되었다는 뜻은 아닙니다. escape 를 보존하므로 `..%2F` 같은 입력은 수집기에 그대로 도착하고, 수집기나 중간 프록시가 라우팅 전에 `%2F` 를 디코드하면 접두사 밖으로 나갈 수 있습니다. 실제 Momento 수집기의 `%2F` 해석은 이 저장소에서 검증하지 않았습니다. 경로 정규화(`..` 제거나 거절)는 새 계약이므로 추가하지 않았습니다
+
+### 변경
+
+- 실제 `routes` → `securityHeaders` → `momentoProxy` 를 통과한 요청을 httptest 수집기의 `r.RequestURI` 로 단정하는 서브테스트를 추가했습니다. 수집기 쪽 `r.URL.Path` 는 수정 후에도 디코드된 값으로 보이므로 `r.RequestURI` 로만 결함이 드러납니다. 수정 전에는 escape 두 경우가 실패하고 기존 계약 두 경우(`/collect/v1/events` 바이트 동일, 질의 문자열 `?site=a%2Fb&q=1` 보존)는 처음부터 통과하며, 수정 두 줄만 되돌리면 같은 두 경우가 같은 메시지로 다시 실패합니다
+- 기존 `TestMomentoProxyForwardsWithoutCredentials` 는 손대지 않고 통과합니다
+
+### 문서
+
+- 문서 프로파일을 v0.2.35로 갱신했습니다. 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.34와 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 재생성하지 않았으며, 본문 Markdown은 v0.2.35로 갱신했습니다
+
 ## [0.2.34] - 2026-10-15
 
 ### 수정
@@ -552,7 +571,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.34...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.35...HEAD
+[0.2.35]: https://github.com/hkjang/jikim/releases/tag/v0.2.35
 [0.2.34]: https://github.com/hkjang/jikim/releases/tag/v0.2.34
 [0.2.33]: https://github.com/hkjang/jikim/releases/tag/v0.2.33
 [0.2.32]: https://github.com/hkjang/jikim/releases/tag/v0.2.32
