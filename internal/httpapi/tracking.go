@@ -227,10 +227,14 @@ func (s *Server) momentoProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {
+			// Keep the escaped form alongside the decoded one so SetURL joins
+			// the collector prefix without turning a browser's %2F into a real
+			// path separator: a decoded path would reach the collector as a
+			// different path, and %2E%2E%2F would leave the configured prefix.
+			request.Out.URL.Path = strings.TrimPrefix(r.URL.Path, tracking.MomentoProxyPrefix)
+			request.Out.URL.RawPath = strings.TrimPrefix(r.URL.EscapedPath(), tracking.MomentoProxyPrefix)
 			request.SetURL(target)
 			request.SetXForwarded()
-			request.Out.URL.Path = target.Path + strings.TrimPrefix(r.URL.Path, tracking.MomentoProxyPrefix)
-			request.Out.URL.RawPath = ""
 			request.Out.Host = target.Host
 			// The collector is not this application: it must not see the
 			// session cookie or a bearer token the browser attached.
