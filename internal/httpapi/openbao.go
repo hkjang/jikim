@@ -652,8 +652,10 @@ func baoTransitFailure(err error, operation string) (int, string) {
 }
 
 func (s *Server) baoTransitEncrypt(w http.ResponseWriter, r *http.Request) {
+	// The embedded item decodes the single-item fields flat, so the one
+	// unsupportedParameter() judgement serves both paths.
 	var input struct {
-		Plaintext  *string                `json:"plaintext"`
+		baoTransitBatchItem
 		BatchInput *[]baoTransitBatchItem `json:"batch_input"`
 	}
 	if !decodeBaoJSON(w, r, &input) {
@@ -667,6 +669,13 @@ func (s *Server) baoTransitEncrypt(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.BatchInput != nil {
 		s.baoTransitEncryptBatch(w, r, key, session.User.ID, *input.BatchInput)
+		return
+	}
+	// A parameter jikim does not implement is refused rather than dropped, so a
+	// caller never receives a ciphertext weaker than the one it asked for. The
+	// order matches the batch loop: unsupported first, then missing.
+	if name := input.unsupportedParameter(); name != "" {
+		baoError(w, http.StatusBadRequest, "unsupported transit parameter: "+name)
 		return
 	}
 	// An absent plaintext is not an empty plaintext: the single-item path uses
@@ -732,7 +741,7 @@ func (s *Server) baoTransitEncryptBatch(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) baoTransitDecrypt(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Ciphertext *string                `json:"ciphertext"`
+		baoTransitBatchItem
 		BatchInput *[]baoTransitBatchItem `json:"batch_input"`
 	}
 	if !decodeBaoJSON(w, r, &input) {
@@ -746,6 +755,12 @@ func (s *Server) baoTransitDecrypt(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.BatchInput != nil {
 		s.baoTransitDecryptBatch(w, r, key, session.User, *input.BatchInput)
+		return
+	}
+	// As with encrypt, an unimplemented parameter is refused before the store is
+	// asked to decrypt without it.
+	if name := input.unsupportedParameter(); name != "" {
+		baoError(w, http.StatusBadRequest, "unsupported transit parameter: "+name)
 		return
 	}
 	// As with encrypt, an absent ciphertext is refused here rather than handed

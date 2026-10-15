@@ -122,13 +122,15 @@ mount 이름은 `transit`으로 고정되며 key는 `/`를 포함할 수 없습�
 
 단건 요청에 `plaintext`·`ciphertext` 필드가 아예 없으면 batch 항목과 같은 판정으로 `400`과 `missing plaintext to encrypt`·`missing ciphertext to decrypt`를 돌려주며 저장소를 호출하지 않습니다. 값이 명시된 빈 문자열(`{"plaintext":""}`)은 유효한 입력입니다.
 
+단건 요청이 구현하지 않는 `context`·`nonce`·`associated_data`를 비지 않은 값으로, 또는 0이 아닌 `key_version`을 보내면 조용히 무시하지 않고 `400`과 `unsupported transit parameter: <이름>`을 돌려주며 저장소를 호출하지 않습니다(batch는 같은 문자열을 항목별 `error`로 전달합니다). 미지원 파라미터 판정이 필드 누락 판정보다 앞서므로 `{"context":"Y3R4"}`는 두 경로에서 같은 메시지를 받습니다. 빈 문자열과 `key_version: 0`은 "요청하지 않음"으로 보아 정상 처리합니다.
+
 `batch_input`이 있으면 단건 `plaintext`·`ciphertext` 필드는 무시합니다. batch 의미는 다음과 같습니다.
 
 - 각 결과는 입력과 같은 순서이며 성공 항목은 `ciphertext`·`key_version` 또는 `plaintext`를, 실패 항목은 `error` 문자열을 가집니다.
 - 항목에 `reference`를 넣으면 해당 결과에 그대로 되돌려 줍니다.
 - 성공 항목이 하나라도 있으면 `200`, 모든 항목이 실패하면 `400`이며 두 경우 모두 `batch_results`를 반환합니다. 모든 항목이 실패했고 그중 하나라도 서버 측 장애(예: DB 연결 실패)라면 `400` 대신 `500`입니다.
 - `batch_input`이 빈 배열이면 `400`입니다.
-- `context`, `nonce`, `associated_data`, 0이 아닌 `key_version`은 구현하지 않으므로 조용히 무시하지 않고 해당 항목을 `error`로 처리합니다.
+- `context`, `nonce`, `associated_data`, 0이 아닌 `key_version`은 구현하지 않으므로 조용히 무시하지 않고 해당 항목을 `error`로 처리합니다(단건 경로는 같은 문자열을 `400`으로 돌려줍니다).
 - decrypt는 batch 전체를 하나의 감사 이벤트로 기록하며 감사 기록에 실패하면 `503`과 함께 어떤 평문도 반환하지 않습니다.
 
 오류 응답은 원인에 따라 나뉩니다. 잘못된 base64 평문·ciphertext 형식·인증 실패 같은 요청 오류는 `400`과 함께 이유를 돌려주고, 존재하지 않는 key나 key 버전으로 decrypt하면 `400`과 `encryption key not found`입니다(key 부재는 `transit/{key}` 경로의 decrypt capability를 통과한 뒤에만 알려 주며, capability가 없으면 key 존재 여부와 무관하게 `403`입니다). DB 장애 등 서버 측 실패는 `500`이며 driver·crypto 내부 오류 문자열은 응답에 담지 않습니다. batch에서도 같은 판정을 항목별 `error` 문자열에 적용합니다.
