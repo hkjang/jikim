@@ -9,6 +9,25 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.39] - 2026-10-16
+
+### 수정
+
+- Transit ciphertext 의 `vN` 키 버전 토큰을 비정규 표기로도 받아들이던 오류 수정. `TransitDecrypt` 는 `strconv.Atoi` 로 토큰을 읽었는데 이 함수가 부호와 선행 0을 통과시키고, 뒤이어 AAD 를 파싱된 정수로 재조립하므로 `vault:v01:`·`vault:v001:`·`vault:v+1:` 이 저장소까지 내려가 `vault:v1:` 과 똑같이 복호화됐습니다. compatibility.md 가 `vault:vN:` 한 가지 형식만 문서화했는데도 하나의 암호문에 여러 유효 표기가 존재해, 표기를 정규화해 저장·비교·중복 제거하는 호출자가 같은 암호문을 다른 것으로 보았습니다
+- `transitCiphertextKeyVersion` 순수 헬퍼에서 `v` 뒤에 부호도 선행 0도 없는 10진수만 받아들이도록 좁히고, 거절이 데이터베이스에 닿기 전에 일어나게 했습니다. encrypt 가 내보내는 `fmt.Sprintf("vault:v%d:", version)` 형식과 AAD 문자열은 바꾸지 않았으므로 기존 암호문은 그대로 복호화됩니다
+- `v0`·`v-1`·`vx`·`v` 가 `ErrInvalid` 가 되는 기존 판정과 `v1`·`v12`·`v10` 이 통과하는 정규 표기는 그대로입니다. 20자리 숫자처럼 `int` 범위를 넘는 토큰도 `ErrInvalid` 입니다. 상위 httpapi 의 미지원 파라미터·필드 누락 판정, batch 경로의 항목별 `error` 전달, Transit mount·key 이름 제약, 권한 확인과 감사 기록은 변경하지 않았습니다
+
+### 변경
+
+- `internal/store/transit_ciphertext_test.go` 를 추가했습니다. 연결이 즉시 거부되는 lazy `pgxpool` 을 seam 으로 써서 "DB 에 닿기 전에 거절했는가" 를 DSN 없이 구분합니다. 입력이 저장소까지 내려가면 `ErrInvalid` 가 아닌 연결 오류로 돌아오므로, 비정규 표기 4개(`v01`·`v001`·`v+1`·`v+01`)가 수정 전에는 연결 오류로 실패하고 수정 후 `ErrInvalid` 가 되는 것이 분리 확인됩니다
+- 헬퍼 단위 표 18개와 `TransitDecrypt` 경로 표 10개, 형식 오류 5개(`bao:` 접두사, `v` 없는 버전, 토막난 입력, 짧은 payload, base64 아님)를 함께 단정합니다. 테스트는 `Store` 를 직접 구성해 핸들러·미들웨어·실제 PostgreSQL 경로를 지나지 않으므로, batch 경로가 이 판정을 항목별 `error` 로 전달하는 동작은 기존 httpapi 테스트가 담당합니다
+- 업스트림 OpenBao 가 `vault:v01:` 에 정확히 같은 판정을 내리는지는 확인하지 않았습니다. 근거는 이 저장소가 encrypt 에서 내보내는 유일한 형식과 compatibility.md 가 이미 문서화한 `vault:vN:` 계약입니다
+
+### 문서
+
+- 호환성 프로파일의 Transit 제한 계약에 비정규 버전 토큰이 저장소 안에서 거절된다는 것을 한 문단으로 기록했습니다. 이 판정은 미지원 파라미터·필드 누락과 달리 httpapi 가 아니라 저장소에서 일어나므로 단건 경로에서는 `400` 이 되고, batch 는 같은 판정을 항목별 `error` 로 전달하므로 성공 항목이 하나라도 있으면 응답 자체는 `200` 이라는 차이도 함께 적었습니다. 문서 프로파일을 v0.2.39으로 갱신했습니다. 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.38과 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 재생성하지 않았으며, 본문 Markdown은 v0.2.39으로 갱신했습니다
+
 ## [0.2.38] - 2026-10-15
 
 ### 수정
@@ -628,7 +647,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.38...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.39...HEAD
+[0.2.39]: https://github.com/hkjang/jikim/releases/tag/v0.2.39
 [0.2.38]: https://github.com/hkjang/jikim/releases/tag/v0.2.38
 [0.2.37]: https://github.com/hkjang/jikim/releases/tag/v0.2.37
 [0.2.36]: https://github.com/hkjang/jikim/releases/tag/v0.2.36
