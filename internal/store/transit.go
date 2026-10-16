@@ -39,13 +39,33 @@ func (s *Store) TransitEncrypt(ctx context.Context, name, plaintextBase64, actor
 	return fmt.Sprintf("vault:v%d:%s", version, base64.RawStdEncoding.EncodeToString(payload)), nil
 }
 
+// transitCiphertextKeyVersion은 ciphertext의 `vN` 버전 토큰을 정규 표기로만 읽습니다.
+// strconv.Atoi는 부호(`v+1`)와 선행 0(`v01`)을 통과시키는데, 뒤이어 AAD를 파싱된
+// 정수로 재조립하므로 비정규 표기도 평문을 돌려받습니다. 표기를 하나로 고정합니다.
+func transitCiphertextKeyVersion(token string) (int, bool) {
+	digits, ok := strings.CutPrefix(token, "v")
+	if !ok || digits == "" || (len(digits) > 1 && digits[0] == '0') {
+		return 0, false
+	}
+	for _, char := range []byte(digits) {
+		if char < '0' || char > '9' {
+			return 0, false
+		}
+	}
+	version, err := strconv.Atoi(digits)
+	if err != nil || version < 1 {
+		return 0, false
+	}
+	return version, true
+}
+
 func (s *Store) TransitDecrypt(ctx context.Context, name, encoded string) (string, error) {
 	parts := strings.SplitN(encoded, ":", 3)
 	if len(parts) != 3 || parts[0] != "vault" || !strings.HasPrefix(parts[1], "v") {
 		return "", fmt.Errorf("%w: ciphertext 형식", ErrInvalid)
 	}
-	version, err := strconv.Atoi(strings.TrimPrefix(parts[1], "v"))
-	if err != nil || version < 1 {
+	version, ok := transitCiphertextKeyVersion(parts[1])
+	if !ok {
 		return "", ErrInvalid
 	}
 	payload, err := base64.RawStdEncoding.DecodeString(parts[2])
