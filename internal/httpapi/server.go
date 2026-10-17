@@ -26,6 +26,7 @@ type Server struct {
 	aiLimiter         *aiRequestLimiter
 	webhookSlots      chan struct{}
 	sessionResolver   func(context.Context, string) (model.Session, error)
+	sessionCreator    func(context.Context, string, string, string, string, time.Duration) (string, model.Session, error)
 	sessionRevoker    func(context.Context, string) error
 	authenticator     func(context.Context, string, string) (model.User, error)
 	securityLoader    func(context.Context) (store.SecurityConfig, error)
@@ -223,6 +224,13 @@ func (s *Server) resolveSession(ctx context.Context, token string) (model.Sessio
 		return s.sessionResolver(ctx, token)
 	}
 	return s.store.SessionByToken(ctx, token)
+}
+
+func (s *Server) createSession(ctx context.Context, userID, kind, name, createdBy string, ttl time.Duration) (string, model.Session, error) {
+	if s.sessionCreator != nil {
+		return s.sessionCreator(ctx, userID, kind, name, createdBy, ttl)
+	}
+	return s.store.CreateSession(ctx, userID, kind, name, createdBy, ttl)
 }
 
 func (s *Server) revokeSessionToken(ctx context.Context, token string) error {
