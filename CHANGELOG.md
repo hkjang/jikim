@@ -9,6 +9,24 @@
 - OpenBao differential 호환성 비교 테스트 범위 확대
 - PKI, 동적 데이터베이스 자격증명, Lease와 Raft/HA는 구현·검증 후 별도 프로파일로 제공
 
+## [0.2.40] - 2026-10-17
+
+### 수정
+
+- `auth/token/create` 가 길이를 알 수 없는(chunked) 요청 본문을 조용히 버리던 오류 수정. 게이트가 `r.ContentLength > 0 && !decodeBaoJSON(...)` 였으므로 `Transfer-Encoding: chunked` 요청(Go 가 `ContentLength` 를 `-1` 로 채움)은 본문을 한 바이트도 읽지 않고 기본값으로 진행했습니다. 그래서 `{"ttl":"1h"}` 를 chunked 로 보낸 호출자가 12시간 토큰을 `200` 으로 받아 수명이 12배가 되고, `{"ttl":"99999h"}`·`{"ttl":"0s"}`·`{"ttl":"soon"}` 처럼 서버가 거절하는 값도 `400` 이 아니라 기본 TTL 로 성공했으며, 깨진 JSON(`{"ttl":`)과 두 개의 JSON 값(`{} {}`)도 `400` 없이 통과했습니다
+- 게이트를 `decodeOptionalBaoJSON` 호출로 바꾸고 `decodeBaoJSON` 을 공용 코어 `decodeBaoJSONBody(…, allowEmpty bool)` 로 뽑아, 빈 본문(`io.EOF`)만 기본값으로 통과시키는 변형을 추가했습니다. `r.ContentLength != 0` 로만 바꾸면 빈 chunked 본문이 `400` 이 되므로, 본문 없는 요청이 기본 12시간으로 성공하는 기존 계약을 지키기 위해 길이를 보지 않고 디코드합니다
+- 같은 저장소의 다른 세 호출부(`resource_handlers.go`·`oidc.go`·`ai.go`)는 모두 `r.ContentLength != 0` 이라 이 한 줄만 다른 판정을 하고 있었습니다. 기존 두 오류 메시지·`maxJSONBody`·`UseNumber`·단일 JSON 값 검사는 그대로이고 `DisallowUnknownFields` 는 넣지 않았으므로 미지의 필드를 보내던 호출자는 영향을 받지 않습니다. 권한 거절(admin·manager)은 디코드 전에 그대로 남아 reader 는 여전히 `403` 입니다
+
+### 변경
+
+- `internal/httpapi/server.go` 에 기존 `resolveSession`·`revokeSessionToken` 과 같은 모양의 `sessionCreator` seam 을 추가했습니다. 거절 케이스가 nil store panic 대신 "`200` + 생성 카운터 1회" 로 관찰되므로, 본문을 읽지 않는 결함이 저장소 없이 분리 확인됩니다
+- `internal/httpapi/openbao_token_create_body_test.go` 를 추가했습니다(서브테스트 18개). `quietServer` 에 `sessionResolver`·`sessionCreator` 를 주입하고 `http.NewServeMux()` + `openBaoRoutes` 로 실제 라우트와 `withBaoAuth` 를 통과시켜, 거절 케이스마다 생성기 0회 호출을, 수락 케이스에서 `lease_duration == 3600` 과 생성기가 받은 `name == "ci"`·`ttl == 1h` 를 단정합니다. 같은 본문을 `Content-Length` 와 chunked 양쪽으로 보내 두 경로가 같은 판정을 받는 것도 함께 고정합니다
+
+### 문서
+
+- 호환성 프로파일의 인증 계약에 `auth/token/create` 본문이 `Content-Length` 없는 요청에서도 읽히며 본문이 아예 없는 요청만 기본 TTL(12시간)로 통과한다는 것을 한 줄로 기록했습니다. 문서 프로파일을 v0.2.40으로 갱신했습니다. 화면 캡처는 실제로 찍은 `v0.2.9`를 그대로 가리킵니다
+- 두 가이드 PDF(`docs/USER_GUIDE.pdf`, `docs/ADMIN_GUIDE.pdf`)는 v0.2.39와 같은 이유로 표지가 `v0.2.18`인 채로 남았습니다. 기존 변환기(Markdown 표지 템플릿 + HeadlessChrome 인쇄)가 저장소에 없어 같은 판형으로 재생성하지 않았으며, 본문 Markdown은 v0.2.40으로 갱신했습니다
+
 ## [0.2.39] - 2026-10-16
 
 ### 수정
@@ -647,7 +665,8 @@
 - PKI, 동적 자격증명, Lease, Namespace, Seal/Unseal, Raft/HA와 Agent/Plugin은 v0.1.0 운영 지원 범위가 아님
 - 오프라인 릴리스 이미지 아키텍처는 linux/amd64
 
-[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.39...HEAD
+[Unreleased]: https://github.com/hkjang/jikim/compare/v0.2.40...HEAD
+[0.2.40]: https://github.com/hkjang/jikim/releases/tag/v0.2.40
 [0.2.39]: https://github.com/hkjang/jikim/releases/tag/v0.2.39
 [0.2.38]: https://github.com/hkjang/jikim/releases/tag/v0.2.38
 [0.2.37]: https://github.com/hkjang/jikim/releases/tag/v0.2.37
