@@ -238,7 +238,7 @@ func (s *Server) baoTokenCreate(w http.ResponseWriter, r *http.Request) {
 		TTL         string `json:"ttl"`
 		DisplayName string `json:"display_name"`
 	}
-	if r.ContentLength > 0 && !decodeBaoJSON(w, r, &input) {
+	if !decodeOptionalBaoJSON(w, r, &input) {
 		return
 	}
 	ttl := 12 * time.Hour
@@ -250,7 +250,7 @@ func (s *Server) baoTokenCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		ttl = parsed
 	}
-	token, child, err := s.store.CreateSession(r.Context(), session.User.ID, "openbao", input.DisplayName, session.User.ID, ttl)
+	token, child, err := s.createSession(r.Context(), session.User.ID, "openbao", input.DisplayName, session.User.ID, ttl)
 	if err != nil {
 		baoError(w, http.StatusInternalServerError, "failed to create token")
 		return
@@ -881,10 +881,26 @@ func transitCiphertextVersion(ciphertext string) (int, error) {
 }
 
 func decodeBaoJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	return decodeBaoJSONBody(w, r, dst, false)
+}
+
+// decodeOptionalBaoJSON lets a request with no body at all through on the
+// caller's defaults. OpenBao accepts auth/token/create without a body, so that
+// contract stays, but a body whose length the server could not determine
+// (Transfer-Encoding: chunked, reported as ContentLength == -1) is still a body
+// and has to be read rather than silently dropped.
+func decodeOptionalBaoJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	return decodeBaoJSONBody(w, r, dst, true)
+}
+
+func decodeBaoJSONBody(w http.ResponseWriter, r *http.Request, dst any, allowEmpty bool) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	decoder := json.NewDecoder(r.Body)
 	decoder.UseNumber()
 	if err := decoder.Decode(dst); err != nil {
+		if allowEmpty && errors.Is(err, io.EOF) {
+			return true
+		}
 		baoError(w, http.StatusBadRequest, "invalid request body")
 		return false
 	}
